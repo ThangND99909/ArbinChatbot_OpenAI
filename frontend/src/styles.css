@@ -1,0 +1,379 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  background: white;
+  min-height: 100vh;
+  box-shadow: 0 0 20px rgba(0,0,0,0.1);
+}
+
+.header {
+  background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+  color: white;
+  padding: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.logo-container {
+  flex-shrink: 0;
+}
+
+.logo-placeholder {
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #4fc3f7 0%, #29b6f6 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 24px;
+  color: white;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.logo-text {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.header-info h1 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.header-info p {
+  opacity: 0.9;
+}
+
+.main-content {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 140px);
+}
+
+.chat-container {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: #fafafa;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.message {
+  max-width: 80%;
+  padding: 1rem;
+  border-radius: 12px;
+  line-height: 1.5;
+}
+
+.message.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.message.bot {
+  align-self: flex-start;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.message-content {
+  word-wrap: break-word;
+}
+
+.sources {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #ddd;
+  font-size: 0.85rem;
+}
+
+.sources ul {
+  list-style: none;
+  margin-top: 0.25rem;
+}
+
+.sources li {
+  padding: 0.25rem 0;
+  color: #666;
+}
+
+.confidence {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: #4caf50;
+  font-weight: bold;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #666;
+}
+
+.empty-state h3 {
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.example-questions {
+  margin-top: 2rem;
+  text-align: left;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.example-questions ul {
+  list-style: none;
+  margin-top: 0.5rem;
+}
+
+.example-questions li {
+  padding: 0.5rem;
+  background: white;
+  margin-bottom: 0.5rem;
+  border-radius: 6px;
+  border-left: 4px solid #667eea;
+}
+
+.loading {
+  display: flex;
+  gap: 4px;
+  padding: 10px;
+}
+
+.loading span {
+  font-size: 24px;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.loading span:nth-child(1) { animation-delay: -0.32s; }
+.loading span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1.0); }
+}
+
+.input-area {
+  display: flex;
+  gap: 1rem;
+}
+
+.input-area input {
+  flex: 1;
+  padding: 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s;
+}
+
+.input-area input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.input-area button {
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.input-area button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.input-area button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    text-align: center;
+    gap: 1rem;
+  }
+  
+  .message {
+    max-width: 90%;
+  }
+  
+  .input-area {
+    flex-direction: column;
+  }
+  
+  .input-area button {
+    width: 100%;
+  }
+}
+
+/* ========== THÊM PHẦN NÀY VÀO CUỐI FILE ========== */
+/* ReactMarkdown styling for bot messages */
+.message.bot .message-content > div {
+  line-height: 1.6;
+}
+
+/* Headers */
+.message.bot h1,
+.message.bot h2,
+.message.bot h3,
+.message.bot h4 {
+  margin: 1em 0 0.5em 0;
+  color: #1a237e;
+  font-weight: 600;
+}
+
+.message.bot h1 {
+  font-size: 1.5em;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 0.3em;
+}
+
+.message.bot h2 {
+  font-size: 1.3em;
+}
+
+.message.bot h3 {
+  font-size: 1.1em;
+}
+
+/* Text formatting */
+.message.bot strong {
+  font-weight: 600;
+  color: #1a237e;
+}
+
+.message.bot em {
+  font-style: italic;
+}
+
+/* Lists */
+.message.bot ul,
+.message.bot ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.message.bot ul {
+  list-style-type: disc;
+}
+
+.message.bot ol {
+  list-style-type: decimal;
+}
+
+.message.bot li {
+  margin: 0.3em 0;
+  line-height: 1.5;
+}
+
+/* Paragraphs */
+.message.bot p {
+  margin: 0.8em 0;
+}
+
+/* Code blocks */
+.message.bot code {
+  background-color: #f5f5f5;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.message.bot pre {
+  background-color: #f8f9fa;
+  padding: 1em;
+  border-radius: 6px;
+  margin: 1em 0;
+  overflow-x: auto;
+  border-left: 4px solid #667eea;
+}
+
+.message.bot pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Blockquotes */
+.message.bot blockquote {
+  border-left: 4px solid #764ba2;
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #555;
+  font-style: italic;
+}
+
+/* Links */
+.message.bot a {
+  color: #667eea;
+  text-decoration: none;
+  border-bottom: 1px dotted #667eea;
+}
+
+.message.bot a:hover {
+  color: #764ba2;
+  border-bottom: 1px solid #764ba2;
+}
+
+/* Ensure sources don't get markdown styling */
+.sources h1,
+.sources h2,
+.sources h3,
+.sources h4,
+.sources strong,
+.sources em,
+.sources ul,
+.sources ol,
+.sources li,
+.sources p {
+  all: revert;
+  font-size: 0.85rem !important;
+  font-weight: normal !important;
+  color: #666 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: normal !important;
+}
+
+.sources ul {
+  list-style: none !important;
+  padding-left: 0 !important;
+}

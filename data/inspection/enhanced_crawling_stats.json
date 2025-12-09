@@ -1,0 +1,75 @@
+{
+  "total_pages_crawled": 319,
+  "new_documents": 319,
+  "updated_documents": 0,
+  "cached_documents": 0,
+  "total_content_chars": 8298425,
+  "avg_content_length": 26013.871473354233,
+  "max_depth": 5,
+  "processed_urls_total": 319,
+  "importance_score_distribution": {
+    "high": 308,
+    "medium": 4,
+    "low": 7
+  },
+  "top_new_urls": [
+    "https://www.arbin.com/products",
+    "https://www.arbin.com/software",
+    "https://www.arbin.com/support",
+    "https://www.arbin.com/resources",
+    "https://www.arbin.com/applications"
+  ],
+  "top_updated_urls": [],
+  "sample_content": [
+    {
+      "url": "https://www.arbin.com/products",
+      "title": "Products | Arbin Instruments",
+      "status": "new",
+      "content_preview": "Battery R&D Equipment Arbin's range of research and development testing solutions ensures researchers have the tools needed to bring new technology to the market. Cell, Module & Pack Tester For decades, Arbin's equipment has defined industry standards, helping our customers to confidently advance en...",
+      "importance_score": 24,
+      "content_length": 7215
+    },
+    {
+      "url": "https://www.arbin.com/software",
+      "title": "Software Solution | Arbin Instruments",
+      "status": "new",
+      "content_preview": "Testing Software Solutions The details are critical in materials research - and the development and refining of new battery chemistries and energy storage technology require reliable testing solutions. Our Cross Platform MITS Software provide comprehensive, reliable data, that full fill those needs....",
+      "importance_score": 24,
+      "content_length": 43636
+    },
+    {
+      "url": "https://www.arbin.com/support",
+      "title": "Support | Arbin Instruments",
+      "status": "new",
+      "content_preview": "Support Arbin Instruments is well known for our excellent technical support. We pride ourselves on giving dedicated attention to each customer, large and small. With professional and friendly service, we will do everything we can to get you back up and running as fast as possible. Contact Support US...",
+      "importance_score": 12,
+      "content_length": 4971
+    }
+  ],
+  "crawl_success_rate": {
+    "total_urls": 321,
+    "successful": 319,
+    "failed": 2,
+    "cached": 0,
+    "success_rate": 99.37694704049844,
+    "failure_rate": 0.6230529595015576,
+    "cache_rate": 0.0,
+    "failed_urls": [
+      {
+        "url": "https://www.arbin.com/cdn-cgi/l/email-protection",
+        "error": "404 Client Error: Not Found for url: https://www.arbin.com/cdn-cgi/l/email-protection",
+        "timestamp": "2025-12-09 13:48:14",
+        "depth": 1,
+        "parent_url": "https://www.arbin.com/support"
+      },
+      {
+        "url": "http://www.arbin.com/cdn-cgi/l/email-protection",
+        "error": "404 Client Error: Not Found for url: http://www.arbin.com/cdn-cgi/l/email-protection",
+        "timestamp": "2025-12-09 13:56:38",
+        "depth": 5,
+        "parent_url": "http://www.arbin.com/support/training-tutorials"
+      }
+    ],
+    "failed_count": 2
+  }
+}

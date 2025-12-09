@@ -1,0 +1,28 @@
+{
+  "total_urls": 321,
+  "successful": 319,
+  "failed": 2,
+  "cached": 0,
+  "success_rate": 99.37694704049844,
+  "failure_rate": 0.6230529595015576,
+  "cache_rate": 0.0,
+  "failed_urls": [
+    {
+      "url": "https://www.arbin.com/cdn-cgi/l/email-protection",
+      "error": "404 Client Error: Not Found for url: https://www.arbin.com/cdn-cgi/l/email-protection",
+      "timestamp": "2025-12-09 13:48:14",
+      "depth": 1,
+      "parent_url": "https://www.arbin.com/support"
+    },
+    {
+      "url": "http://www.arbin.com/cdn-cgi/l/email-protection",
+      "error": "404 Client Error: Not Found for url: http://www.arbin.com/cdn-cgi/l/email-protection",
+      "timestamp": "2025-12-09 13:56:38",
+      "depth": 5,
+      "parent_url": "http://www.arbin.com/support/training-tutorials"
+    }
+  ],
+  "failed_count": 2,
+  "base_url": "https://www.arbin.com/",
+  "crawl_completed_at": "2025-12-09 13:57:11"
+}

@@ -1,0 +1,36 @@
+{
+  "total_files": 4,
+  "successful": 4,
+  "failed": 0,
+  "failed_files": [],
+  "dir": "documents",
+  "timestamp": "2025-12-09T13:46:43.469224",
+  "stats": {
+    "total_files": 4,
+    "by_type": {
+      "pdf": 4
+    },
+    "by_size": {
+      "small": 1,
+      "medium": 1,
+      "large": 2
+    },
+    "ocr_stats": {
+      "ocr_used": 0,
+      "ocr_pages": 0,
+      "hybrid_used": 0,
+      "total_ocr_pages": 0
+    },
+    "content_stats": {
+      "total_words": 151542,
+      "total_chars": 929015,
+      "avg_words_per_file": 37885.5,
+      "avg_chars_per_file": 232253.75
+    },
+    "file_stats": {
+      "cached": 0,
+      "modified": 0,
+      "new": 0
+    }
+  }
+}

@@ -1,0 +1,75 @@
+[
+        {
+            "url": "https://www.arbin.com/contact-us.html",
+            "reason": "JavaScript-rendered content, email/phone được bảo vệ",
+            "difficulty": "High",
+            "details": "Nội dung liên hệ được load bằng JavaScript, email có thể được mã hóa hoặc hiển thị qua hình ảnh"
+        },
+        {
+            "url": "https://www.arbin.com/products/",
+            "reason": "Dynamic product listings with AJAX",
+            "difficulty": "Medium-High",
+            "details": "Danh sách sản phẩm được tải động, cần render JavaScript"
+        },
+        {
+            "url": "https://www.arbin.com/software/",
+            "reason": "Interactive software demos and downloads",
+            "difficulty": "High",
+            "details": "Có interactive elements và protected download links"
+        },
+        {
+            "url": "https://www.arbin.com/support/",
+            "reason": "Login-required sections, protected documents",
+            "difficulty": "Very High",
+            "details": "Yêu cầu đăng nhập để truy cập tài liệu hỗ trợ"
+        },
+        {
+            "url": "https://www.arbin.com/resources/whitepapers/",
+            "reason": "PDF downloads with access controls",
+            "difficulty": "High",
+            "details": "Tài liệu PDF có kiểm soát truy cập"
+        },
+        {
+            "url": "https://www.arbin.com/careers/",
+            "reason": "Dynamic job listings, application forms",
+            "difficulty": "Medium",
+            "details": "Danh sách việc làm được tải động, có form ứng tuyển"
+        },
+        {
+            "url": "https://www.arbin.com/blog/",
+            "reason": "Infinite scrolling, AJAX content loading",
+            "difficulty": "Medium-High",
+            "details": "Blog có infinite scrolling, nội dung tải qua AJAX"
+        },
+        {
+            "url": "https://www.arbin.com/about/leadership/",
+            "reason": "Interactive team profiles",
+            "difficulty": "Medium",
+            "details": "Hồ sơ đội ngũ có interactive elements"
+        },
+        {
+            "url": "https://www.arbin.com/events/",
+            "reason": "Calendar with dynamic events",
+            "difficulty": "Medium",
+            "details": "Lịch sự kiện được cập nhật động"
+        },
+        {
+            "url": "https://www.arbin.com/distributors/",
+            "reason": "Protected distributor information",
+            "difficulty": "High",
+            "details": "Thông tin nhà phân phối được bảo vệ"
+        }
+        /*
+        additional_patterns = [
+        "https://www.arbin.com/product/.*",  # Các trang sản phẩm cụ thể
+        "https://www.arbin.com/application/.*",  # Ứng dụng
+        "https://www.arbin.com/technical.*",  # Tài liệu kỹ thuật
+        "https://www.arbin.com/webinar.*",  # Webinars
+        "https://www.arbin.com/case-study.*",  # Case studies
+    ]*/
+    ]
+    
+ 
+
+        
+    
