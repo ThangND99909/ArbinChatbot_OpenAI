@@ -30,11 +30,20 @@ if __name__ == "__main__":
     print(f"📊 Tỷ lệ thất bại: {stats['failure_rate']:.1f}%")
     
     if stats['failed_urls']:
-        print(f"🔴 Số URL thất bại: {stats['failed_count']}")
-        print("📝 Danh sách URL thất bại (5 cái đầu):")
+        failed_path = "./data/inspection/failed_urls_arbin.json"
+        with open(failed_path, "w", encoding="utf-8") as f:
+            json.dump(stats['failed_urls'], f, ensure_ascii=False, indent=2)
+        print(f"📄 Danh sách URL thất bại đã lưu: {failed_path}")
         for i, failed in enumerate(stats['failed_urls'][:5], 1):
             print(f"  {i}. {failed['url']}")
             print(f"     Lỗi: {failed['error'][:80]}...")
+
+    # Lưu skipped URLs
+    if crawler.skipped_urls:
+        skipped_path = "./data/inspection/skipped_urls_arbin.json"
+        with open(skipped_path, "w", encoding="utf-8") as f:
+            json.dump(crawler.skipped_urls, f, ensure_ascii=False, indent=2)
+        print(f"📄 Skipped URLs saved to {skipped_path}")
     
     if not documents:
         print("⚠️ No new documents found — site may be up-to-date.")

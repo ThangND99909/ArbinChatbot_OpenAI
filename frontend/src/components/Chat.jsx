@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import TypingMessage from "./TypingMessage";
 
 function Chat({ messages, isLoading }) {
   const messagesEndRef = useRef(null);
@@ -45,13 +46,17 @@ function Chat({ messages, isLoading }) {
         <div key={index} className={`message ${msg.sender || "bot"}`}>
           <div className="message-content">
             {/* CHỈ HIỂN THỊ TEXT THUẦN - KHÔNG CÓ MARKDOWN */}
-            <div style={{ 
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              lineHeight: '1.5'
-            }}>
-              {textToRender}
-            </div>
+            {msg.sender === "bot" ? (
+              <TypingMessage text={textToRender} />
+            ) : (
+              <div style={{
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                lineHeight: '1.5'
+              }}>
+                {textToRender}
+              </div>
+            )}
 
             {Array.isArray(msg.sources) && msg.sources.length > 0 && (
               <div className="sources">

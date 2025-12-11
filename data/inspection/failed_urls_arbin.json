@@ -1,0 +1,18 @@
+[
+  {
+    "url": "https://www.arbin.com/cdn-cgi/l/email-protection",
+    "error": "404 Client Error: Not Found for url: https://www.arbin.com/cdn-cgi/l/email-protection",
+    "error_type": "HTTPError",
+    "timestamp": "2025-12-10 09:00:40",
+    "depth": 1,
+    "parent_url": "https://www.arbin.com/support"
+  },
+  {
+    "url": "http://www.arbin.com/cdn-cgi/l/email-protection",
+    "error": "404 Client Error: Not Found for url: http://www.arbin.com/cdn-cgi/l/email-protection",
+    "error_type": "HTTPError",
+    "timestamp": "2025-12-10 09:07:33",
+    "depth": 5,
+    "parent_url": "http://www.arbin.com/support/training-tutorials"
+  }
+]

@@ -5,7 +5,7 @@ from langchain_core.callbacks import CallbackManagerForChainRun
 from langchain.prompts import PromptTemplate
 from ai_core.prompts import QA_PROMPT_TEMPLATE
 from typing import Dict, Union, Any, Optional, List
-import google.generativeai as genai
+from openai import OpenAI  # OpenAI v1.0.0+
 import os
 from dotenv import load_dotenv
 
@@ -13,96 +13,127 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# ====== CẤU HÌNH GEMINI API ======
-GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# ====== CẤU HÌNH OPENAI API ======
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if OPENAI_API_KEY:
+    print(f"✅ OpenAI API key found, length: {len(OPENAI_API_KEY)}")
 else:
-    logger.warning("Gemini API key not found in .env")
+    logger.warning("OpenAI API key not found in .env")
+    print("⚠️ WARNING: OPENAI_API_KEY not found in environment variables")
 
 # =========================================================
-# =============== LỚP WRAPPER CHO GEMINI LLM ===============
+# =============== LỚP WRAPPER CHO OPENAI LLM ===============
 # =========================================================
-class GeminiLLM(Runnable):
+class OpenAILLM(Runnable):
     """
-    Wrapper cho Google Gemini để sử dụng trong LangChain
+    Wrapper cho OpenAI (v1.0.0+) để sử dụng trong LangChain
     Kế thừa từ Runnable để tương thích với LLMChain
     """
 
-    def __init__(self, model: str = "gemini-2.5-flash", temperature: float = 0.2):
+    def __init__(self, model: str = "gpt-3.5-turbo", temperature: float = 0.2):
         self.model = model
         self.temperature = temperature
-        # Nếu có GOOGLE_API_KEY trong môi trường thì cấu hình lại Gemini
-        if "GOOGLE_API_KEY" in os.environ:
-            genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+        self.client = None
+        self._initialize_client()
+        
+    def _initialize_client(self):
+        """Khởi tạo OpenAI client với API key từ environment"""
+        try:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key or api_key == "your_openai_api_key_here":
+                logger.warning("OpenAI API key not properly configured")
+                print("⚠️ WARNING: Please set OPENAI_API_KEY in .env file")
+                api_key = "placeholder"  # For initialization without crashing
+            
+            self.client = OpenAI(api_key=api_key)
+            logger.info(f"✅ OpenAI client initialized with model: {self.model}")
+            print(f"✅ OpenAILLM initialized with model: {self.model}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize OpenAI client: {e}")
+            print(f"❌ OpenAILLM initialization error: {e}")
+            self.client = None
 
     def invoke(self, inputs: Union[str, Dict], config=None, **kwargs) -> str:
         """
-        Phương thức chính để gọi Gemini model.
-        Luôn đảm bảo kết quả trả về là `string`.
+        Phương thức chính để gọi OpenAI model.
         """
-
+        
         if "stop" in kwargs:
-            kwargs.pop("stop")  # Loại bỏ tham số không cần thiết (LangChain đôi khi thêm stop token)
+            kwargs.pop("stop")
 
-        # Xử lý đầu vào: có thể là dict hoặc string
+        # Xử lý đầu vào
         if isinstance(inputs, dict):
-            # Nếu có question + language (dành cho NLU)
             if 'question' in inputs and 'language' in inputs:
                 prompt = f"Question: {inputs['question']}\nLanguage: {inputs['language']}"
-            # Nếu có context + question (dành cho QA)
             elif 'context' in inputs and 'question' in inputs:
                 prompt = QA_PROMPT_TEMPLATE.format(
                     context=inputs['context'],
                     question=inputs['question']
                 )
-            # Nếu là dict khác, convert toàn bộ thành chuỗi
             else:
                 prompt = "\n".join(f"{k}: {v}" for k, v in inputs.items())
         else:
             prompt = str(inputs)
 
-        # Tạo model instance nếu chưa có
-        if not hasattr(self, "model_instance"):
-            self.model_instance = genai.GenerativeModel(self.model)
+        # Kiểm tra client
+        if not self.client:
+            self._initialize_client()
+            if not self.client:
+                error_msg = "OpenAI client not available. Please check API key configuration."
+                logger.error(error_msg)
+                # RAISE EXCEPTION, không trả về string
+                raise Exception(error_msg)
 
-        # Gửi prompt đến Gemini API
-        response = self.model_instance.generate_content(
-            prompt,
-            generation_config={"temperature": self.temperature}
-        )
-
-        # ================= XỬ LÝ KẾT QUẢ TRẢ VỀ =================
-        result = ""
+        # ================= GỬI REQUEST ĐẾN OPENAI API =================
         try:
-            # Nếu response có thuộc tính text (cấu trúc chuẩn)
-            if hasattr(response, 'text') and response.text:
-                result = str(response.text).strip()
+            # ====== TỰ ĐỘNG GIỚI HẠN ĐỘ DÀI CÂU TRẢ LỜI ======
+            # Ưu tiên ngắn gọn hơn tùy vào loại tác vụ
+            max_output_tokens = 500  # mặc định
+            if isinstance(inputs, dict):
+                if "intent" in inputs.get("task", "").lower():
+                    max_output_tokens = 150
+                elif "entity" in inputs.get("task", "").lower():
+                    max_output_tokens = 200
+                elif "comparison" in inputs.get("task", "").lower():
+                    max_output_tokens = 700
+                elif "qa" in inputs.get("task", "").lower():
+                    max_output_tokens = 500
+                elif "support" in inputs.get("task", "").lower():
+                    max_output_tokens = 400
+                else:
+                    # Nếu có context dài, giảm bớt để tiết kiệm token
+                    context_len = len(inputs.get("context", "")) if "context" in inputs else 0
+                    max_output_tokens = 300 if context_len < 2000 else 200
 
-            # Nếu không, tìm text trong các candidates
-            elif hasattr(response, 'candidates') and response.candidates:
-                for candidate in response.candidates:
-                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                        for part in candidate.content.parts:
-                            if hasattr(part, 'text'):
-                                result = str(part.text).strip()
-                                break
-                    if result:
-                        break
-
-            # Nếu vẫn không có, fallback về str(response)
-            if not result:
-                result = str(response)
-
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=self.temperature,
+                max_output_tokens=max_output_tokens
+            )
+            
+            # ================= XỬ LÝ KẾT QUẢ TRẢ VỀ =================
+            if response.choices and len(response.choices) > 0:
+                result = response.choices[0].message.content.strip()
+                logger.debug(f"OpenAI response received, length: {len(result)}")
+            else:
+                error_msg = "OpenAI returned empty response"
+                logger.warning(error_msg)
+                raise Exception(error_msg)
+                
         except Exception as e:
-            logger.error(f"Error extracting text from Gemini response: {e}")
-            result = "I apologize, but I encountered an error processing your request."
+            error_msg = str(e)
+            logger.error(f"OpenAI API error: {error_msg}")
+            print(f"❌ OpenAI API error: {error_msg}")
+            
+            # QUAN TRỌNG: RAISE EXCEPTION, không trả về string
+            # NLUProcessor cần bắt exception này
+            raise Exception(f"OpenAI API error: {error_msg}")
 
-        # Đảm bảo luôn trả về string
-        if not isinstance(result, str):
-            result = str(result)
-
-        logger.debug(f"Gemini response extracted: {result[:200]}...")
+        logger.debug(f"OpenAI response extracted: {result[:200]}...")
         return result
 
     # Phương thức _call để tương thích với giao diện Runnable của LangChain
@@ -117,19 +148,23 @@ class GeminiLLM(Runnable):
     @property 
     def OutputType(self):
         return str
+    
+    def __repr__(self):
+        return f"OpenAILLM(model='{self.model}', temperature={self.temperature})"
 
 
 # =========================================================
-# ===== LỚP SIMPLELLMMANAGER — FALLBACK KHI GEMINI LỖI ====
+# ===== LỚP SIMPLELLMMANAGER — FALLBACK KHI OPENAI LỖI ====
 # =========================================================
 class SimpleLLMManager:
     """
-    Fallback LLM đơn giản nếu Gemini không hoạt động
+    Fallback LLM đơn giản nếu OpenAI không hoạt động
     Dùng để đảm bảo hệ thống không bị crash
     """
 
     def __init__(self, model: str = "simple-fallback", temperature: float = 0.1):
         logger.warning(f"Using simple fallback LLM: {model}")
+        print(f"⚠️ Using simple fallback LLM: {model}")
         self.model = model
         self.temperature = temperature
 
@@ -138,14 +173,30 @@ class SimpleLLMManager:
         """Trả về self để tương thích với interface của LangChain"""
         return self
 
+    def invoke(self, inputs: Union[str, Dict], **kwargs) -> str:
+        """Implement invoke method for compatibility with LangChain"""
+        if isinstance(inputs, dict):
+            if 'question' in inputs and 'language' in inputs:
+                question = inputs['question']
+                language = inputs['language']
+                return f"Fallback response for question in {language}: {question}"
+            elif 'context' in inputs and 'question' in inputs:
+                context = inputs['context'][:200] if inputs['context'] else "No context"
+                question = inputs['question']
+                return f"Based on context: {context}...\n\nQuestion: {question}\n\n(Note: Using fallback LLM)"
+            else:
+                return f"Fallback response for dict input: {str(inputs)[:100]}..."
+        else:
+            return f"Fallback LLM response: {str(inputs)[:100]}..."
+
     def generate_response(self, question: str, context: str = "") -> str:
         """
         Sinh phản hồi đơn giản (mô phỏng LLM thật)
         """
         if context:
-            return f"Dựa trên thông tin có sẵn: {context[:200]}...\n\nCâu hỏi: {question}\n\n(Lưu ý: Đang sử dụng fallback LLM, vui lòng cấu hình Gemini API key trong file .env để có câu trả lời chính xác hơn)"
+            return f"Dựa trên thông tin có sẵn: {context[:200]}...\n\nCâu hỏi: {question}\n\n(Lưu ý: Đang sử dụng fallback LLM, vui lòng cấu hình OpenAI API key trong file .env để có câu trả lời chính xác hơn)"
         else:
-            return f"Tôi nhận được câu hỏi: '{question}'. (Lưu ý: Đang sử dụng fallback LLM, vui lòng cấu hình Gemini API key trong file .env để có câu trả lời chính xác hơn)"
+            return f"Tôi nhận được câu hỏi: '{question}'. (Lưu ý: Đang sử dụng fallback LLM, vui lòng cấu hình OpenAI API key trong file .env để có câu trả lời chính xác hơn)"
 
     def create_chain(self, name: str, prompt_template: str, input_vars: list):
         """
@@ -173,18 +224,26 @@ class SimpleLLMManager:
 # =========================================================
 class LLMManager:
     """
-    Lớp trung tâm quản lý LLM (Gemini hoặc fallback)
+    Lớp trung tâm quản lý LLM (OpenAI hoặc fallback)
     Tương thích với cấu trúc LLMChain của LangChain
     """
 
-    def __init__(self, model: str = "gemini-2.5-flash", temperature: float = 0.1, use_gemini: bool = True):
-        # Nếu có Gemini API thì dùng GeminiLLM, ngược lại dùng fallback
-        if use_gemini and GEMINI_API_KEY:
-            self.llm = GeminiLLM(model=model, temperature=temperature)
-            logger.info(f"Using Gemini LLM: {model}")
+    def __init__(self, model: str = "gpt-3.5-turbo", temperature: float = 0.1, use_openai: bool = True):
+        # Nếu có OpenAI API thì dùng OpenAILLM, ngược lại dùng fallback
+        if use_openai and OPENAI_API_KEY and OPENAI_API_KEY != "your_openai_api_key_here":
+            try:
+                self.llm = OpenAILLM(model=model, temperature=temperature)
+                logger.info(f"✅ Using OpenAI LLM: {model}")
+                print(f"✅ LLMManager initialized with OpenAI: {model}")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI: {e}")
+                print(f"❌ OpenAI initialization failed, using fallback: {e}")
+                self.llm = SimpleLLMManager(model=model, temperature=temperature)
+                logger.warning("Falling back to SimpleLLMManager")
         else:
             self.llm = SimpleLLMManager(model=model, temperature=temperature)
             logger.warning("Using fallback SimpleLLMManager")
+            print("⚠️ LLMManager using fallback LLM")
 
         self.chains = {}
         self._init_default_chains()  # Khởi tạo các chain mặc định
@@ -198,13 +257,25 @@ class LLMManager:
             input_variables=["context", "question"]
         )
 
-        self.qa_chain = LLMChain(
-            llm=self.llm,
-            prompt=qa_prompt,
-            verbose=False
-        )
-
-        logger.info("Initialized LLM chains")
+        try:
+            self.qa_chain = LLMChain(
+                llm=self.llm,
+                prompt=qa_prompt,
+                verbose=False
+            )
+            logger.info("✅ Initialized LLM chains")
+        except Exception as e:
+            logger.warning(f"Failed to create LLMChain: {e}")
+            print(f"⚠️ LLMChain creation warning: {e}")
+            # Fallback chain
+            class SimpleQAClient:
+                def invoke(self, inputs):
+                    context = inputs.get("context", "")
+                    question = inputs.get("question", "")
+                    return {
+                        'text': f"Simple QA response:\nContext: {context[:100]}...\nQuestion: {question}"
+                    }
+            self.qa_chain = SimpleQAClient()
 
     def generate_response(self, question: str, context: str = "") -> str:
         """
@@ -228,16 +299,12 @@ class LLMManager:
                 else:
                     return str(result).strip()
             else:
-                # Nếu không có context, gọi predict trực tiếp
-                if hasattr(self.llm, 'predict'):
-                    return str(self.llm.predict(question)).strip()
-                elif hasattr(self.llm, 'generate_response'):
-                    return str(self.llm.generate_response(question)).strip()
-                else:
-                    return str(f"LLM method not available for question: {question}").strip()
+                # Nếu không có context, gọi invoke trực tiếp
+                return str(self.llm.invoke(question)).strip()
 
         except Exception as e:
             logger.error(f"Error in generate_response: {e}")
+            print(f"❌ Error in generate_response: {e}")
             return str(f"Error: {str(e)[:200]}").strip()
 
     def create_chain(self, name: str, prompt_template: str, input_vars: list):
@@ -250,14 +317,21 @@ class LLMManager:
             input_variables=input_vars
         )
 
-        chain = LLMChain(
-            llm=self.llm,
-            prompt=prompt,
-            verbose=False
-        )
-
-        self.chains[name] = chain
-        return chain
+        try:
+            chain = LLMChain(
+                llm=self.llm,
+                prompt=prompt,
+                verbose=False
+            )
+            self.chains[name] = chain
+            return chain
+        except Exception as e:
+            logger.error(f"Failed to create chain '{name}': {e}")
+            # Return mock chain
+            class MockChain:
+                def invoke(self, inputs):
+                    return {'text': f"Mock chain '{name}' response"}
+            return MockChain()
 
     def run_chain(self, name: str, inputs: Dict) -> str:
         """
@@ -274,9 +348,11 @@ class LLMManager:
 # =========================================================
 # =============== FACTORY FUNCTION =========================
 # =========================================================
-def get_llm_manager(use_gemini: bool = True):
+def get_llm_manager(use_openai: bool = True):
     """
     Hàm tiện ích để khởi tạo LLMManager
     Dùng để dễ dàng thay đổi model hoặc fallback
     """
-    return LLMManager(use_gemini=use_gemini)
+    return LLMManager(use_openai=use_openai)
+
+

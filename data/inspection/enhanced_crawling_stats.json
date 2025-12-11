@@ -1,14 +1,14 @@
 {
-  "total_pages_crawled": 319,
-  "new_documents": 319,
+  "total_pages_crawled": 321,
+  "new_documents": 321,
   "updated_documents": 0,
   "cached_documents": 0,
-  "total_content_chars": 8298425,
-  "avg_content_length": 26013.871473354233,
+  "total_content_chars": 8327929,
+  "avg_content_length": 25943.704049844237,
   "max_depth": 5,
-  "processed_urls_total": 319,
+  "processed_urls_total": 321,
   "importance_score_distribution": {
-    "high": 308,
+    "high": 310,
     "medium": 4,
     "low": 7
   },
@@ -47,29 +47,35 @@
     }
   ],
   "crawl_success_rate": {
-    "total_urls": 321,
-    "successful": 319,
+    "total_urls": 323,
+    "successful": 321,
     "failed": 2,
     "cached": 0,
-    "success_rate": 99.37694704049844,
-    "failure_rate": 0.6230529595015576,
+    "success_rate": 99.38080495356037,
+    "failure_rate": 0.6191950464396285,
     "cache_rate": 0.0,
     "failed_urls": [
       {
         "url": "https://www.arbin.com/cdn-cgi/l/email-protection",
         "error": "404 Client Error: Not Found for url: https://www.arbin.com/cdn-cgi/l/email-protection",
-        "timestamp": "2025-12-09 13:48:14",
+        "error_type": "HTTPError",
+        "timestamp": "2025-12-10 09:00:40",
         "depth": 1,
         "parent_url": "https://www.arbin.com/support"
       },
       {
         "url": "http://www.arbin.com/cdn-cgi/l/email-protection",
         "error": "404 Client Error: Not Found for url: http://www.arbin.com/cdn-cgi/l/email-protection",
-        "timestamp": "2025-12-09 13:56:38",
+        "error_type": "HTTPError",
+        "timestamp": "2025-12-10 09:07:33",
         "depth": 5,
         "parent_url": "http://www.arbin.com/support/training-tutorials"
       }
     ],
-    "failed_count": 2
+    "failed_count": 2,
+    "error_type_distribution": {
+      "HTTPError": 2
+    },
+    "skipped_count": 234
   }
 }

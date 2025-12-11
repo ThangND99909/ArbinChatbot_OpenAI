@@ -9,7 +9,8 @@ import math
 from .schemas import ChatRequest, ChatResponse, DocumentUploadResponse, HealthResponse
 from ai_core.retrieval_qa import ArbinRetrievalQA
 from ai_core.nlu_processor import NLUProcessor
-from ai_core.llm_chain import LLMManager
+#from ai_core.llm_chain import LLMManager
+from ai_core.llm_chain import get_llm_manager
 from data_layer.vector_store import VectorStore
 from data_layer.web_crawler import WebCrawler
 from data_layer.document_loader import DocumentProcessor  # SỬA: document_processor thay vì document_loader
@@ -28,7 +29,8 @@ app.add_middleware(
 
 # Initialize components
 vector_store = VectorStore()
-llm_manager = LLMManager()
+#llm_manager = LLMManager()
+llm_manager = get_llm_manager(use_openai=True)
 qa_system = ArbinRetrievalQA(llm_manager.llm, vector_store)
 nlu_processor = NLUProcessor()
 

@@ -25,10 +25,11 @@ class ArbinMemoryManager:
     - Session management: theo dõi thời gian, số lượng truy vấn, metadata...
     """
 
-    def __init__(self, k=5):
+    def __init__(self, k=10):  # Có thể tăng k từ 5 lên 10 để phù hợp với context window lớn hơn của OpenAI
         """
         Args:
             k: Số lượng tin nhắn được lưu trong bộ nhớ hội thoại (window size)
+               GPT models thường có context window lớn hơn nên có thể tăng k
         """
         self.memories: Dict[str, ConversationBufferWindowMemory] = {}  # Lưu memory riêng cho từng session
         self.session_data: Dict[str, Dict[str, Any]] = {}              # Lưu dữ liệu session mở rộng (intent, context...)
@@ -54,11 +55,12 @@ class ArbinMemoryManager:
             "metadata": {                            # Metadata của session
                 "language": "en",
                 "user_type": "unknown",
-                "query_count": 0
+                "query_count": 0,
+                "model_used": "openai"  # Thêm field để track model đang sử dụng
             }
         }
 
-    def get_memory(self, session_id: str) -> ConversationBufferWindowMemory:
+    def get_memory(self, session_id: str):
         """
         Lấy memory cho một session cụ thể (hoặc tạo mới nếu chưa có)
         """
@@ -77,12 +79,15 @@ class ArbinMemoryManager:
             if session_id not in self.session_data:
                 self.session_data[session_id] = self.session_template.copy()
                 self.session_data[session_id]["created_at"] = datetime.now().isoformat()
+                # Cập nhật model đang sử dụng
+                self.session_data[session_id]["metadata"]["model_used"] = "openai"
         
         return self.memories[session_id]
 
     def save_context(self, session_id: str, user_input: str, 
                     assistant_output: str, intent: str = None,
-                    entities: Dict[str, Any] = None):
+                    entities: Dict[str, Any] = None,
+                    model_used: str = None):  # Thêm tham số để track model
         """
         Lưu ngữ cảnh hội thoại và metadata cho mỗi session.
         
@@ -92,6 +97,7 @@ class ArbinMemoryManager:
             assistant_output: Câu trả lời của chatbot
             intent: Intent phát hiện được
             entities: Các entity trích xuất từ câu hỏi
+            model_used: Model LLM được sử dụng (openai/gemini/fallback)
         """
         try:
             memory = self.get_memory(session_id)
@@ -112,6 +118,10 @@ class ArbinMemoryManager:
                 
                 # Cập nhật câu hỏi cuối
                 session["last_question"] = user_input
+                
+                # Cập nhật model được sử dụng
+                if model_used:
+                    session["metadata"]["model_used"] = model_used
                 
                 # Cập nhật sản phẩm nếu có trong entities
                 if entities and "product_names" in entities and entities["product_names"]:
@@ -142,26 +152,30 @@ class ArbinMemoryManager:
                 conversation_entry = {
                     "timestamp": datetime.now().isoformat(),
                     "user_input": user_input,
+                    "assistant_output": assistant_output[:500],  # Giới hạn độ dài output
                     "intent": intent,
-                    "entities": entities or {}
+                    "entities": entities or {},
+                    "model_used": model_used or "openai"
                 }
                 session["conversation_flow"].append(conversation_entry)
                 
                 # Cập nhật tổng số lượt hỏi
                 session["metadata"]["query_count"] = len(session["conversation_flow"])
                 
-                # Giới hạn conversation_flow để tránh phình to (chỉ giữ 50 lượt gần nhất)
-                if len(session["conversation_flow"]) > 50:
-                    session["conversation_flow"] = session["conversation_flow"][-50:]
+                # Giới hạn conversation_flow để tránh phình to (chỉ giữ 100 lượt gần nhất)
+                if len(session["conversation_flow"]) > 100:  # Tăng từ 50 lên 100
+                    session["conversation_flow"] = session["conversation_flow"][-100:]
             
             # Log kiểm tra
             print(f"Arbin Memory: Saved context for session '{session_id}'")
             print(f"Intent: {intent}")
+            print(f"Model used: {model_used}")
             print(f"Product mentioned: {entities.get('product_names', [])[:1] if entities else 'None'}")
             
         except Exception as e:
             print(f"Error saving context: {e}")
 
+    # [Các phương thức khác giữ nguyên...]
     def get_chat_history(self, session_id: str, format_type: str = "text") -> Any:
         """
         Lấy lại lịch sử hội thoại (chat history)
@@ -170,6 +184,7 @@ class ArbinMemoryManager:
             format_type: 
                 - "text": trả về chuỗi hội thoại đơn giản
                 - "structured": trả về danh sách dict (để frontend hiển thị)
+                - "openai_format": trả về format phù hợp với OpenAI messages API
         """
         try:
             memory = self.get_memory(session_id)
@@ -189,7 +204,7 @@ class ArbinMemoryManager:
                 return history_text
             
             # Dạng structured (cho frontend)
-            else:
+            elif format_type == "structured":
                 structured_history = []
                 for msg in chat_history:
                     if hasattr(msg, 'type') and hasattr(msg, 'content'):
@@ -205,6 +220,18 @@ class ArbinMemoryManager:
                         }
                         structured_history.append(entry)
                 return structured_history
+            
+            # Dạng OpenAI format (để gửi trực tiếp đến OpenAI API)
+            elif format_type == "openai_format":
+                openai_messages = []
+                for msg in chat_history:
+                    if hasattr(msg, 'type') and hasattr(msg, 'content'):
+                        role = "user" if msg.type == "human" else "assistant"
+                        openai_messages.append({
+                            "role": role,
+                            "content": str(msg.content)
+                        })
+                return openai_messages
 
         except Exception as e:
             print(f"Error getting chat history: {e}")
@@ -273,7 +300,8 @@ class ArbinMemoryManager:
             session["memory_stats"] = {
                 "message_count": len(chat_history),
                 "has_memory": len(chat_history) > 0,
-                "window_size": self.k
+                "window_size": self.k,
+                "model_used": session["metadata"].get("model_used", "openai")
             }
             
             return session
@@ -300,6 +328,7 @@ class ArbinMemoryManager:
         summary_parts.append(f"Conversation Summary for session '{session_id}':")
         summary_parts.append(f"- Started: {session['created_at']}")
         summary_parts.append(f"- Total queries: {session['metadata']['query_count']}")
+        summary_parts.append(f"- Model used: {session['metadata'].get('model_used', 'openai')}")
         
         # Tóm tắt sản phẩm, intent, chủ đề gần nhất
         products = session['technical_context']['products_discussed']
@@ -352,19 +381,43 @@ class ArbinMemoryManager:
         """Khởi tạo lại memory LangChain từ chat_history (đã lưu trước đó)"""
         memory = self.get_memory(session_id)
         
-        # (Hiện tại placeholder — có thể mở rộng trong tương lai)
-        for entry in chat_history:
-            if entry["role"] == "user":
-                pass
-            elif entry["role"] == "assistant":
-                pass
+        # Clear existing memory
+        memory.clear()
         
-        print(f"Initialized memory from history for '{session_id}'")
+        # Add messages back to memory
+        for entry in chat_history:
+            if entry.get("sender") == "user":
+                memory.chat_memory.add_user_message(entry.get("text", ""))
+            elif entry.get("sender") == "bot":
+                memory.chat_memory.add_ai_message(entry.get("text", ""))
+        
+        print(f"Initialized memory from history for '{session_id}' (loaded {len(chat_history)} messages)")
+
+    def get_openai_messages(self, session_id: str) -> List[Dict[str, str]]:
+        """
+        Trả về lịch sử hội thoại dưới dạng format của OpenAI messages
+        Hữu ích khi muốn gửi trực tiếp đến OpenAI API
+        """
+        return self.get_chat_history(session_id, "openai_format")
+
+    def add_system_message(self, session_id: str, system_prompt: str):
+        """
+        Thêm system message vào đầu conversation
+        Hữu ích cho việc thiết lập context cho OpenAI model
+        """
+        try:
+            memory = self.get_memory(session_id)
+            # Thêm system message vào chat memory
+            # Lưu ý: ConversationBufferWindowMemory không hỗ trợ system message trực tiếp
+            # Có thể cần custom implementation nếu muốn thêm system message
+            print(f"System prompt set for session '{session_id}': {system_prompt[:100]}...")
+        except Exception as e:
+            print(f"Error adding system message: {e}")
 
 
 # ============================================================
 # Factory function để khởi tạo Memory Manager
 # ============================================================
-def create_arbin_memory_manager(k: int = 5) -> ArbinMemoryManager:
+def create_arbin_memory_manager(k: int = 10) -> ArbinMemoryManager:  # Tăng default k lên 10
     """Factory function để tạo đối tượng ArbinMemoryManager"""
     return ArbinMemoryManager(k=k)

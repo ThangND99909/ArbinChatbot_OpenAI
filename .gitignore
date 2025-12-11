@@ -10,11 +10,17 @@ __pycache__/
 build/
 dist/
 .env
-venv/
 .env/
 .venv/
+venv/
 logs/
 *.log
+*.db
+*.sqlite
+*.pkl
+*.bin
+.cache/
+.ipynb_checkpoints/
 
 # ===== Node.js frontend =====
 node_modules/
@@ -27,6 +33,19 @@ build/
 .env.development
 .env.production
 .env.test
+
+# ===== LangChain / RAG Data =====
+chroma_db/
+chroma_db/backups/
+chroma_db/*.json
+chroma_db/*.csv
+chroma_db/*.pkl
+chroma_db/*.bin
+documents/
+vector_store/
+data/
+outputs/
+__temp__/
 
 # ===== IDEs =====
 .vscode/

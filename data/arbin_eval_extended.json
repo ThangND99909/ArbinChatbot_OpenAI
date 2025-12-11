@@ -1,0 +1,152 @@
+[
+  {
+    "section": "Product Information",
+    "question": "What is Arbin's RBT series used for?",
+    "ground_truth": "Arbin's RBT Series (Regenerative Battery Testers) are used for testing high-power battery packs and modules with energy recovery capability.",
+    "retrieved_docs": [
+      "The RBT series from Arbin is designed for testing high-power battery packs and modules.",
+      "These regenerative testers return discharged power to the grid, saving energy and reducing heat output."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Product Information",
+    "question": "Which Arbin product series is designed for laboratory cell testing?",
+    "ground_truth": "Arbin's LBT Series (Laboratory Battery Testers) are used for precision testing of cells with high-resolution current and voltage measurements.",
+    "retrieved_docs": [
+      "The LBT series offers high-precision channels for cell testing in laboratory environments.",
+      "Each channel provides 24-bit resolution for accurate current and voltage readings."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Product Information",
+    "question": "What is the purpose of the MSTAT multi-channel test system?",
+    "ground_truth": "Arbin's MSTAT system is a multi-channel potentiostat/galvanostat designed for advanced electrochemical testing such as half-cell and full-cell analysis.",
+    "retrieved_docs": [
+      "MSTAT from Arbin provides multiple independent potentiostat channels for advanced electrochemical testing.",
+      "It supports both half-cell and full-cell configurations for research applications."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Software & Control Systems",
+    "question": "What software does Arbin use to control its battery test systems?",
+    "ground_truth": "Arbin uses MITS Pro software to control, monitor, and analyze all battery test systems.",
+    "retrieved_docs": [
+      "MITS Pro software provides complete control of Arbin test channels and supports custom test schedules.",
+      "It allows real-time monitoring and data logging of all tests."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Software & Control Systems",
+    "question": "Can Arbin’s MITS Pro software control multiple systems simultaneously?",
+    "ground_truth": "Yes, MITS Pro software can manage multiple Arbin test systems at once and provides a unified interface for scheduling and data collection.",
+    "retrieved_docs": [
+      "MITS Pro can control multiple Arbin systems simultaneously from a single PC.",
+      "The software offers synchronized scheduling and consolidated data management."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Software & Control Systems",
+    "question": "What features does Arbin's Data Watcher tool provide?",
+    "ground_truth": "Arbin’s Data Watcher allows users to view real-time test data, perform live analysis, and monitor test performance remotely.",
+    "retrieved_docs": [
+      "Data Watcher enables live data viewing and remote test supervision.",
+      "It helps users track performance metrics and identify anomalies in real time."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Applications / Use Cases",
+    "question": "In which industries are Arbin battery test systems commonly used?",
+    "ground_truth": "Arbin’s battery test systems are used in industries such as electric vehicles, renewable energy, aerospace, and academic research.",
+    "retrieved_docs": [
+      "Arbin serves industries like EV, renewable energy, and aerospace.",
+      "Their systems are also used in battery R&D laboratories worldwide."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Applications / Use Cases",
+    "question": "How are Arbin systems used in electric vehicle development?",
+    "ground_truth": "Arbin systems are used to test EV battery cells, modules, and packs to evaluate performance, cycle life, and efficiency under real driving profiles.",
+    "retrieved_docs": [
+      "Arbin provides EV battery testing solutions for cells, modules, and full packs.",
+      "They can simulate real driving conditions and measure energy efficiency and degradation."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Applications / Use Cases",
+    "question": "Can Arbin systems be used for fuel cell or supercapacitor testing?",
+    "ground_truth": "Yes, Arbin’s MSTAT and HPS systems can be configured for fuel cell, supercapacitor, and other electrochemical device testing.",
+    "retrieved_docs": [
+      "The MSTAT system can perform tests on fuel cells and supercapacitors.",
+      "Arbin offers versatile platforms for a range of electrochemical applications."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Technical Specifications",
+    "question": "What is the voltage and current range of Arbin’s LBT Series?",
+    "ground_truth": "The LBT Series supports a voltage range from 5V up to 60V and current from microamps to hundreds of amps depending on configuration.",
+    "retrieved_docs": [
+      "LBT20 models provide voltage ranges from 5V to 60V and multiple current options.",
+      "High-precision current control allows testing from microamps up to 200A."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Technical Specifications",
+    "question": "What is the energy efficiency of Arbin’s regenerative RBT systems?",
+    "ground_truth": "Arbin’s regenerative systems can return over 90% of discharged energy to the grid, improving efficiency and reducing heat generation.",
+    "retrieved_docs": [
+      "The RBT series achieves over 90% power regeneration efficiency.",
+      "This reduces power consumption and heat load compared to traditional testers."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Technical Specifications",
+    "question": "How fast is data sampling in Arbin’s test channels?",
+    "ground_truth": "Arbin systems provide data logging rates up to 1000 samples per second per channel for accurate transient response measurement.",
+    "retrieved_docs": [
+      "Each Arbin test channel supports 1000Hz data logging.",
+      "Fast sampling ensures high-resolution voltage and current measurement."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Company Overview",
+    "question": "What does Arbin Instruments specialize in?",
+    "ground_truth": "Arbin Instruments specializes in manufacturing high-precision battery testing systems for cells, modules, and packs used in EVs, energy storage, and research.",
+    "retrieved_docs": [
+      "Arbin Instruments provides precision battery test equipment for research and industrial use.",
+      "Their systems are used for cells, modules, and packs in EV and energy storage applications."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Company Overview",
+    "question": "Where is Arbin Instruments headquartered?",
+    "ground_truth": "Arbin Instruments is headquartered in College Station, Texas, USA.",
+    "retrieved_docs": [
+      "Arbin Instruments is based in College Station, Texas.",
+      "The company operates globally with distributors and partners worldwide."
+    ],
+    "chatbot_answer": ""
+  },
+  {
+    "section": "Company Overview",
+    "question": "Since when has Arbin been providing battery test solutions?",
+    "ground_truth": "Arbin Instruments has been designing and manufacturing battery testing systems since 1991.",
+    "retrieved_docs": [
+      "Arbin was founded in 1991 and has over 30 years of experience in battery test solutions.",
+      "The company continues to innovate in regenerative and high-precision test equipment."
+    ],
+    "chatbot_answer": ""
+  }
+]

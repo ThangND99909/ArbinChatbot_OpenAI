@@ -44,6 +44,7 @@ class EnhancedWebCrawler:
             'failed': 0,
             'failed_urls': []  # Lưu các URL thất bại
         }
+        self.skipped_urls: List[Dict[str, str]] = []
 
         # Bộ nhớ theo dõi URL đã xử lý (hash nội dung + timestamp)
         self.processed_urls_info: Dict[str, Dict] = {}
@@ -69,9 +70,9 @@ class EnhancedWebCrawler:
             logger.warning("Could not read robots.txt")
 
         # Giới hạn và cấu hình crawl
-        self.max_pages = 500      # Giới hạn số trang tối đa
+        self.max_pages = 1000      # Giới hạn số trang tối đa
         self.max_depth = 5        # Mức sâu tối đa khi đệ quy theo link
-        self.delay = 0.5          # Thời gian nghỉ giữa các request
+        self.delay = 0.2          # Thời gian nghỉ giữa các request
         self.timeout = 15         # Timeout mỗi request
 
         # Cấu hình số ngày recrawl cho từng loại trang
@@ -155,10 +156,20 @@ class EnhancedWebCrawler:
         if parsed.netloc and parsed.netloc != self.base_domain:
             return False
         if not self.check_robots_permission(url):
+            self.skipped_urls.append({
+                "url": url,
+                "reason": "Blocked by robots.txt",
+                "parent_url": parent_url
+            })
             return False
         url_lower = url.lower()
         for pattern in self.exclude_patterns:
             if re.search(pattern, url_lower, re.IGNORECASE):
+                self.skipped_urls.append({
+                    "url": url,
+                    "reason": f"Excluded by pattern: {pattern}",
+                    "parent_url": parent_url
+                })
                 return False
         return True
 
@@ -341,9 +352,11 @@ class EnhancedWebCrawler:
                 logger.warning(f"Attempt {attempt+1} failed for {url}: {e}")
                 if attempt == 2:  # Lần thử cuối cùng thất bại
                     self.crawl_stats['failed'] += 1
+                    error_type = type(e).__name__
                     self.crawl_stats['failed_urls'].append({
                         'url': url,
                         'error': str(e),
+                        'error_type': error_type,
                         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'depth': depth,
                         'parent_url': parent_url
@@ -534,6 +547,10 @@ class EnhancedWebCrawler:
         successful = self.crawl_stats['successful']
         failed = self.crawl_stats['failed']
         cached = total - successful - failed
+
+        # ✅ Phân loại lỗi
+        from collections import Counter
+        error_types = Counter([f.get('error_type', 'Unknown') for f in self.crawl_stats['failed_urls']])
         
         return {
             'total_urls': total,
@@ -544,7 +561,9 @@ class EnhancedWebCrawler:
             'failure_rate': (failed / total * 100) if total > 0 else 0,
             'cache_rate': (cached / total * 100) if total > 0 else 0,
             'failed_urls': self.crawl_stats['failed_urls'],
-            'failed_count': len(self.crawl_stats['failed_urls'])
+            'failed_count': len(self.crawl_stats['failed_urls']),
+            'error_type_distribution': dict(error_types),  # ✅ thêm thống kê lỗi
+            'skipped_count': len(self.skipped_urls)        # ✅ thêm số URL bị bỏ qua
         }
 
     # -----------------------------------

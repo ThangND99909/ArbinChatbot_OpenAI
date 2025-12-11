@@ -1,9 +1,9 @@
-# ai_core/retrieval_qa.py - PHIÊN BẢN ARBIN
+# ai_core/retrieval_qa.py
 from langchain.prompts import PromptTemplate
 from typing import Dict, Any, List, Optional, Tuple
 from .nlu_processor import NLUProcessor
 from .memory_manager import ArbinMemoryManager
-# XÓA: from .parsers import NLUOutputParser  # Không cần thiết
+
 import traceback
 import re
 
@@ -156,13 +156,13 @@ class ArbinRetrievalQA:
 
     def _generate_response(self, question: str, context: str, intent: str,
                        language: str, chat_history: str, entities: Dict) -> str:
-        """Generate response (Gemini-compatible, dùng prompts.py)"""
+        """Generate response (OpenAI-compatible, dùng prompts.py)"""
 
         # 1️⃣ Chọn ChatPromptTemplate từ mapping
         selected_prompt = self.prompt_mapping.get(intent, self.prompt_mapping["other"])
 
         try:
-            # 2️⃣ Format text prompt (Gemini chỉ nhận chuỗi)
+            # 2️⃣ Format text prompt (OpenAI chỉ nhận chuỗi)
             prompt_text = selected_prompt.format(
                 context=context,
                 question=question,
@@ -197,39 +197,94 @@ class ArbinRetrievalQA:
             )
             }.get(language, "You are Arbin assistant.\n\n")
 
-            # 4️⃣ Gộp system + chat_history + prompt
-            full_prompt = (
-                f"{system_message}"
-                f"Previous chat history:\n{chat_history}\n\n"
-                f"{prompt_text}"
-            )
-
-            print("🧠 [Gemini Prompt Preview]:")
-            print(full_prompt[:600] + "...\n")
-
-            # 5️⃣ Gọi Gemini (tuỳ theo SDK)
-            if hasattr(self.llm, "generate_content"):
-                response = self.llm.generate_content(full_prompt)
-                if hasattr(response, "text"):
-                    response = response.text
-            else:
-                response = self.llm.invoke(full_prompt)
-                if hasattr(response, "content"):
+            # 4️⃣ Gộp system + chat_history + prompt thành messages format cho OpenAI
+            messages = [
+                {"role": "system", "content": system_message}
+            ]
+            
+            # Thêm chat history nếu có
+            if chat_history:
+                # Parse chat history thành các message
+                history_messages = self._parse_chat_history_for_openai(chat_history)
+                messages.extend(history_messages)
+            
+            # Thêm user question
+            messages.append({"role": "user", "content": prompt_text})
+            
+            print("🧠 [OpenAI Prompt Preview]:")
+            for msg in messages:
+                print(f"[{msg['role']}]: {msg['content'][:300]}...")
+            
+            # 5️⃣ Gọi OpenAI API
+            try:
+                # Gọi invoke method của OpenAILLM với messages format
+                response = self.llm.invoke(messages)
+                if isinstance(response, dict):
+                    response = response.get('text', '')
+                elif hasattr(response, 'content'):
                     response = response.content
+                    
+            except Exception as e:
+                print(f"OpenAI API error: {e}, trying alternative method...")
+                # Fallback: gửi plain text
+                full_prompt = f"{system_message}\n\nPrevious chat history:\n{chat_history}\n\n{prompt_text}"
+                response = self.llm.invoke(full_prompt)
+                if hasattr(response, 'text'):
+                    response = response.text
 
             # 6️⃣ Chuẩn hoá output
             response = self._validate_response_language(response, language)
             return response.strip()
 
         except Exception as e:
-            print(f"❌ Lỗi generate_response (Gemini): {e}")
+            print(f"❌ Lỗi generate_response (OpenAI): {e}")
             import traceback; traceback.print_exc()
             return (
                 "Xin lỗi, tôi gặp sự cố khi tạo câu trả lời. "
                 "Vui lòng thử lại hoặc liên hệ support@arbin.com."
             )
 
-
+    def _parse_chat_history_for_openai(self, chat_history: str) -> List[Dict[str, str]]:
+        """Parse chat history text thành format messages cho OpenAI"""
+        messages = []
+        if not chat_history:
+            return messages
+            
+        # Giả sử chat_history có format: "User: ...\nAssistant: ..."
+        lines = chat_history.split('\n')
+        current_role = None
+        current_content = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Xác định role
+            if line.lower().startswith('user:'):
+                if current_role and current_content:
+                    messages.append({"role": current_role.lower(), "content": ' '.join(current_content)})
+                current_role = 'user'
+                current_content = [line[5:].strip()]  # Bỏ 'User:'
+            elif line.lower().startswith('assistant:'):
+                if current_role and current_content:
+                    messages.append({"role": current_role.lower(), "content": ' '.join(current_content)})
+                current_role = 'assistant'
+                current_content = [line[10:].strip()]  # Bỏ 'Assistant:'
+            else:
+                # Tiếp tục content của message hiện tại
+                if current_role:
+                    current_content.append(line)
+        
+        # Thêm message cuối cùng
+        if current_role and current_content:
+            messages.append({"role": current_role.lower(), "content": ' '.join(current_content)})
+        
+        # Giới hạn số messages để tránh token limit
+        if len(messages) > 10:
+            messages = messages[-10:]
+            
+        return messages
 
     def _validate_response_language(self, response: str, expected_language: str) -> str:
         """Validate ngôn ngữ của response và sửa nếu cần"""
@@ -293,34 +348,67 @@ class ArbinRetrievalQA:
         Xử lý câu hỏi với pipeline hoàn chỉnh: NLU → Retrieval → Generation
         """
         try:
-             # === XỬ LÝ ĐẶC BIỆT CHO GREETING ===
-            if self._is_greeting(question):
-                print(f"🎯 Detected as greeting")
-                detected_lang = self._detect_language(question)
-                
-                greeting_responses = {
-                    "vi": "Xin chào! Tôi là trợ lý ảo của Arbin Instruments. Tôi có thể giúp gì cho bạn về sản phẩm và dịch vụ của Arbin?",
-                    "en": "Hello! I'm Arbin Instruments virtual assistant. How can I help you with Arbin products and services today?"
-                }
-                
-                response = greeting_responses.get(detected_lang, greeting_responses["en"])
-                self.memory_manager.save_context(session_id, question, response, "greeting", {})
-                
-                return {
-                    "answer": response,
-                    "intent": "greeting",
-                    "entities": {},
-                    "sources": [],
-                    "confidence": 1.0,
-                    "has_context": False,
-                    "language": detected_lang
-                }
             # === BƯỚC 0: PHÁT HIỆN NGÔN NGỮ ===
             final_language = self._resolve_language(question, language)
             print(f"🌐 Final language for response: {final_language}")
             
             # === BƯỚC 1: Phân tích NLU với language đã detect ===
             nlu_result = self.nlu_processor.process_nlu(question, final_language, session_id)
+            
+            print(f"🔍 NLU Analysis: intent='{nlu_result['intent']}', language={final_language}")
+            
+            # KIỂM TRA: Nếu NLU có lỗi hệ thống (QUOTA HẾT)
+            if nlu_result.get("intent") == "system_error" and nlu_result.get("emergency_response"):
+                print("⚠️ SYSTEM ERROR DETECTED IN NLU - Using emergency response")
+                
+                response = nlu_result["emergency_response"]
+                
+                self.memory_manager.save_context(
+                    session_id, question, response, 
+                    "system_error", 
+                    nlu_result.get("entities", {})
+                )
+                
+                return {
+                    "answer": response,
+                    "intent": "system_error",
+                    "entities": nlu_result.get("entities", {}),
+                    "sources": [],
+                    "confidence": 0.0,
+                    "has_context": False,
+                    "language": final_language,
+                    "system_error": True,
+                    "error_type": nlu_result.get("error_type", "unknown")
+                }
+            
+            # KIỂM TRA: Nếu NLU có llm_error (quota nhưng chưa đến system_error)
+            if nlu_result.get("llm_error"):
+                print("⚠️ LLM ERROR detected in NLU - Using fallback response")
+                
+                error_responses = {
+                    "vi": "Chúng tôi đang gặp sự cố kỹ thuật. Vui lòng liên hệ support@arbin.com để được hỗ trợ.",
+                    "en": "We're experiencing technical issues. Please contact support@arbin.com for assistance."
+                }
+                
+                response = error_responses.get(final_language, error_responses["en"])
+                
+                self.memory_manager.save_context(
+                    session_id, question, response, 
+                    "system_error", 
+                    nlu_result.get("entities", {})
+                )
+                
+                return {
+                    "answer": response,
+                    "intent": "system_error",
+                    "entities": nlu_result.get("entities", {}),
+                    "sources": [],
+                    "confidence": 0.0,
+                    "has_context": False,
+                    "language": final_language,
+                    "system_error": True
+                }
+            
             intent = nlu_result["intent"]
             entities = nlu_result["entities"]
             enriched_text = nlu_result.get("enriched_text", question)
@@ -389,19 +477,28 @@ class ArbinRetrievalQA:
             }
 
         except Exception as e:
-            print(f"❌ Lỗi trong get_response: {str(e)}")
-            print(traceback.format_exc())
+            print(f"❌ Lỗi nghiêm trọng trong get_response: {e}")
+            import traceback
+            traceback.print_exc()
             
-            self.memory_manager.save_context(session_id, question, "Lỗi hệ thống", "error", {})
+            # Emergency response cứng
+            lang = final_language if final_language in ["vi", "en"] else "en"
+            emergency = {
+                "vi": "Chúng tôi đang gặp sự cố kỹ thuật. Vui lòng liên hệ support@arbin.com để được hỗ trợ.",
+                "en": "We're experiencing technical issues. Please contact support@arbin.com for assistance."
+            }
+            
+            self.memory_manager.save_context(session_id, question, emergency.get(lang, emergency["en"]), "error", {})
             
             return {
-                "answer": "Xin lỗi, tôi gặp sự cố kỹ thuật. Vui lòng thử lại sau hoặc liên hệ support@arbin.com.",
+                "answer": emergency.get(lang, emergency["en"]),
                 "intent": "error",
                 "entities": {},
                 "sources": [],
                 "confidence": 0.0,
                 "has_context": False,
-                "language": "vi"
+                "language": lang,
+                "system_error": True
             }
 
     # ================= HÀM HỖ TRỢ (giữ nguyên từ bản gốc, chỉ sửa lỗi nhỏ) =================
@@ -603,7 +700,8 @@ class ArbinRetrievalQA:
                 "vi": "Tôi không tìm thấy thông tin ứng dụng cụ thể trong tài liệu. Vui lòng liên hệ applications@arbin.com để được tư vấn chuyên sâu."
             }
         }
-        # Thêm knowledge base về MITS Pro
+        
+        # Thêm knowledge base về MITS Pro (giống Gemini version)
         mits_pro_knowledge = {
             "vi": """
             **Về MITS Pro:**
@@ -646,7 +744,7 @@ class ArbinRetrievalQA:
             """
         }
         
-        # Thêm thông tin liên hệ tổng hợp
+        # Thêm thông tin liên hệ tổng hợp (giống Gemini version)
         contact_knowledge = {
             "vi": """
             **Thông tin liên hệ Arbin Instruments:**
@@ -699,7 +797,7 @@ class ArbinRetrievalQA:
             "en": "Thanks for asking! "
         }.get(lang, "")
         
-        # Xử lý từng trường hợp
+        # Xử lý từng trường hợp (giống Gemini version)
         if "mits pro" in question_lower or any(word in question_lower for word in ["cấu hình", "thiết lập", "setup", "configure"]):
             response = f"{friendly_intro}Tôi hiểu bạn cần hướng dẫn cấu hình MITS Pro.\n\n{mits_pro_knowledge.get(lang, mits_pro_knowledge['en'])}"
         
@@ -711,11 +809,12 @@ class ArbinRetrievalQA:
             response = f"{friendly_intro}{base_response}"
         
         else:
-            fallback = {
+            # Fallback responses (FIXED: khai báo đúng)
+            fallback_responses = {
                 "vi": "Tôi chưa tìm thấy thông tin cụ thể trong tài liệu hiện có. Bạn có thể thử diễn đạt lại câu hỏi hoặc truy cập www.arbin.com để tìm thêm thông tin.",
                 "en": "I haven't found specific information in our current documentation. You might try rephrasing your question or visit www.arbin.com for more information."
-            }.get(lang, fallback["en"])
-            response = f"{friendly_intro}{fallback}"
+            }
+            response = f"{friendly_intro}{fallback_responses.get(lang, fallback_responses['en'])}"
         
         # Thêm đề xuất tiếp theo
         next_step = {

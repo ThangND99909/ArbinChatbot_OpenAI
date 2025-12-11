@@ -5,7 +5,7 @@
 #  - Phân tích câu hỏi người dùng để xác định "intent" (ý định)
 #  - Trích xuất "entities" (thực thể như tên sản phẩm, thông số, lỗi, v.v.)
 #  - Hỗ trợ ngữ cảnh hội thoại (Context Memory) để duy trì mạch trò chuyện
-#  - Kết hợp AI (Gemini) + keyword fallback để đảm bảo ổn định
+#  - Kết hợp AI (OpenAI) + keyword fallback để đảm bảo ổn định  # Đã cập nhật comment
 # ============================================================
 
 import json
@@ -16,7 +16,13 @@ from typing import Dict, Any, List, Optional
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import BaseOutputParser
-from ai_core.llm_chain import GeminiLLM
+try:
+    from ai_core.llm_chain import OpenAILLM
+except ImportError:
+    # Fallback nếu không tìm thấy
+    from ai_core.llm_chain import get_llm_manager
+    llm_manager = get_llm_manager(use_openai=True)
+    llm = llm_manager.llm
 from .prompts import intent_prompt, entity_prompt
 from .parsers import NLUOutputParser
 import traceback
@@ -156,10 +162,10 @@ class NLUProcessor:
 
     def __init__(self, llm=None, memory_manager=None):
         """
-        llm: mô hình LLM (Gemini)
+        llm: mô hình LLM (OpenAI)  # Đã cập nhật comment
         memory_manager: đối tượng quản lý hội thoại (để lấy intent, question, v.v.)
         """
-        self.llm = llm or GeminiLLM()
+        self.llm = llm or OpenAILLM()  # Đã đổi từ GeminiLLM sang OpenAILLM
         self.memory_manager = memory_manager
         self.memory = ContextMemory()  # Bộ nhớ ngữ cảnh cục bộ
         
@@ -179,7 +185,7 @@ class NLUProcessor:
             output_key="answer"
         )
         
-        logger.info("✅ Arbin NLUProcessor initialized")
+        logger.info("✅ Arbin NLUProcessor initialized (using OpenAI)")  # Đã cập nhật log
 
     # =======================================================
     # HÀM LẤY TIN NHẮN ASSISTANT GẦN NHẤT
@@ -203,14 +209,41 @@ class NLUProcessor:
     def detect_intent(self, question: str, language: str = "en", session_id: str = "default") -> Dict[str, Any]:
         """
         Dự đoán ý định của người dùng cho Arbin Instruments.
-        Kết hợp AI (Gemini) + heuristic (keyword fallback)
+        Kết hợp AI (OpenAI) + heuristic (keyword fallback)
         """
         try:
             # Gọi LLM chain để dự đoán intent
             try:
                 raw = self.intent_chain.invoke({"question": question, "language": language})
-            except Exception:
-                # Nếu lỗi LLM → fallback sang keyword
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"NLU INTENT DETECTION ERROR: {error_msg}")
+                print(f"❌ NLU INTENT DETECTION ERROR: {error_msg}")
+                
+                # NẾU LÀ LỖI QUOTA - TRẢ VỀ ERROR RESPONSE NGAY
+                if "insufficient_quota" in error_msg or "429" in error_msg or "quota" in error_msg.lower():
+                    print("⚠️ NLU: OpenAI quota exceeded - returning technical error")
+                    
+                    error_responses = {
+                        "vi": "Chúng tôi đang gặp sự cố kỹ thuật. Vui lòng liên hệ support@arbin.com để được hỗ trợ.",
+                        "en": "We're experiencing technical issues. Please contact support@arbin.com for assistance."
+                    }
+                    
+                    return {
+                        "intent": "system_error",
+                        "confidence": 1.0,
+                        "last_intent": "",
+                        "last_question": "",
+                        "last_product_mentioned": None,
+                        "enriched_text": None,
+                        "keywords_detected": {},
+                        "llm_error": True,
+                        "error_type": "quota_exceeded",
+                        "error_message": error_msg,
+                        "emergency_response": error_responses.get(language, error_responses["en"])
+                    }
+                
+                # Nếu lỗi khác → fallback keyword
                 return self._get_intent_by_keywords_fallback(question, session_id)
             
             # Chuẩn hóa output
@@ -235,7 +268,8 @@ class NLUProcessor:
                 else:
                     intent = "unknown"
                     confidence = 0.0
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to parse LLM output: {e}")
                 intent = "unknown"
                 confidence = 0.0
             
@@ -249,9 +283,9 @@ class NLUProcessor:
             t_lc = question.strip().lower()
             t_ascii = _strip_accents(t_lc)
             words = t_ascii.split()
-            is_short = len(words) <= 4  # Câu ngắn có thể cần enrichment
+            is_short = len(words) <= 4
 
-            # Kiểm tra keyword để tăng độ tin cậy
+            # Kiểm tra keyword
             has_tech_support_kw = _contains_any(t_lc, TECH_SUPPORT_KEYWORDS) or _contains_any(t_ascii, TECH_SUPPORT_KEYWORDS)
             has_spec_kw = _contains_any(t_lc, SPECIFICATION_KEYWORDS) or _contains_any(t_ascii, SPECIFICATION_KEYWORDS)
             has_pricing_kw = _contains_any(t_lc, PRICING_KEYWORDS) or _contains_any(t_ascii, PRICING_KEYWORDS)
@@ -260,12 +294,9 @@ class NLUProcessor:
             has_product_kw = _contains_any(t_lc, PRODUCT_KEYWORDS) or _contains_any(t_ascii, PRODUCT_KEYWORDS)
             has_question_word = _contains_any(t_lc, QUESTION_TRIGGERS) or _contains_any(t_ascii, QUESTION_TRIGGERS)
 
-            # =======================================================
             # Nâng cấp intent dựa trên heuristic / keyword
-            # =======================================================
             enriched_text = None
             
-            # Nếu intent unknown hoặc confidence thấp → fallback theo từ khóa
             if intent == "unknown" or confidence < 0.3:
                 if has_tech_support_kw:
                     intent = "technical_support"
@@ -289,7 +320,6 @@ class NLUProcessor:
                     intent = "product_inquiry"
                     confidence = max(confidence, 0.5)
 
-            # Nếu câu ngắn, gắn thêm context trước đó để hiểu hơn
             if last_intent == "product_inquiry" and is_short and has_product_kw:
                 intent = "product_inquiry"
                 enriched_text = f"{last_question} {question}" if last_question else question
@@ -303,7 +333,6 @@ class NLUProcessor:
             if enriched_text is None:
                 enriched_text = question
 
-            # Cập nhật bộ nhớ tạm (context memory)
             if intent != "unknown":
                 self.memory.update(intent, {})
 
@@ -327,12 +356,13 @@ class NLUProcessor:
 
         except Exception:
             return {
-                "intent": "unknown",
+                "intent": "system_error",
                 "confidence": 0.0,
                 "last_intent": "",
                 "last_question": "",
                 "enriched_text": None,
-                "keywords_detected": {}
+                "keywords_detected": {},
+                "emergency_response": "System error occurred"
             }
 
     # =======================================================
@@ -340,7 +370,7 @@ class NLUProcessor:
     # =======================================================
     def _get_intent_by_keywords_fallback(self, question: str, session_id: str) -> Dict[str, Any]:
         """
-        Khi Gemini API bị lỗi hoặc timeout, hàm này sẽ
+        Khi OpenAI API bị lỗi hoặc timeout, hàm này sẽ  # Đã cập nhật comment
         tự động xác định intent chỉ dựa trên từ khóa.
         """
         logger.warning("Using keyword-only fallback intent detection")
@@ -451,18 +481,35 @@ class NLUProcessor:
     def extract_entities(self, question: str, language: str = "en") -> Dict[str, Any]:
         """
         Gọi LLM để phân tích câu hỏi và trích xuất các thực thể
-        (ví dụ: tên sản phẩm, thông số, lỗi, phần mềm, v.v.)
         """
         try:
             # Thử gọi LLM chain
             try:
                 result = self.entity_chain.invoke({"question": question, "language": language})
-            except Exception:
-                # Nếu LLM lỗi → fallback keyword extraction
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"ENTITY EXTRACTION ERROR: {error_msg}")
+                print(f"❌ ENTITY EXTRACTION ERROR: {error_msg}")
+                
+                # NẾU LÀ LỖI QUOTA
+                if "insufficient_quota" in error_msg or "429" in error_msg or "quota" in error_msg.lower():
+                    print("⚠️ Entity extraction: OpenAI quota exceeded")
+                    
+                    return {
+                        "entities": {},
+                        "confidence": 0.0,
+                        "raw_output": "",
+                        "llm_error": True,
+                        "error_type": "quota_exceeded",
+                        "error_message": error_msg
+                    }
+                
+                # Nếu LLM lỗi khác → fallback keyword extraction
                 return {
                     "entities": self._keyword_entity_extraction(question),
                     "confidence": 0.4,
-                    "raw_output": ""
+                    "raw_output": "",
+                    "llm_error": False
                 }
             
             # Chuẩn hóa output từ LLM
@@ -484,7 +531,6 @@ class NLUProcessor:
                 parsed = self.entity_chain.output_parser.parse(output_text)
                 
                 if isinstance(parsed, dict):
-                    # Nếu parse thành công
                     entities = parsed.get("entities", {
                         "product_names": [],
                         "technical_terms": [],
@@ -497,15 +543,14 @@ class NLUProcessor:
                     })
                     confidence = parsed.get("confidence", 0.7)
                 else:
-                    # Nếu parse lỗi, trả kết quả rỗng
                     entities = {k: [] for k in [
                         "product_names", "technical_terms", "specifications", "applications",
                         "features", "issues", "software_components", "locations"
                     ]}
                     confidence = 0.4
                     
-            except Exception:
-                # Nếu lỗi parse → fallback keyword
+            except Exception as e:
+                logger.warning(f"Failed to parse LLM output for entities: {e}")
                 entities = self._keyword_entity_extraction(question)
                 confidence = 0.4
             
@@ -518,21 +563,22 @@ class NLUProcessor:
                         if v not in existing_values:
                             entities[key].append(v)
             
-            # Lưu lại entities vào context memory
             if any(entities.values()):
                 self.memory.last_entities = entities
             
             return {
                 "entities": entities,
                 "confidence": confidence,
-                "raw_output": str(output_text)[:500] if output_text else ""
+                "raw_output": str(output_text)[:500] if output_text else "",
+                "llm_error": False
             }
             
         except Exception:
             return {
                 "entities": self._keyword_entity_extraction(question),
                 "confidence": 0.4,
-                "raw_output": ""
+                "raw_output": "",
+                "llm_error": False
             }
 
     # =======================================================
@@ -612,10 +658,7 @@ class NLUProcessor:
     # =======================================================
     def process_nlu(self, question: str, language: str = "en", session_id: str = "default") -> Dict[str, Any]:
         """
-        Gọi toàn bộ pipeline NLU gồm:
-        1. detect_intent() → xác định intent
-        2. extract_entities() → trích xuất entities
-        3. hợp nhất kết quả + thêm context
+        Gọi toàn bộ pipeline NLU
         """
         logger.info(f"Processing NLU for question: '{question[:50]}...'")
         
@@ -623,6 +666,44 @@ class NLUProcessor:
         
         # Chạy tuần tự 2 bước
         intent_result = self.detect_intent(question, effective_language, session_id)
+        
+        # KIỂM TRA: Nếu detect_intent đã trả về system_error
+        if intent_result.get("intent") == "system_error" and intent_result.get("emergency_response"):
+            print("⚠️ NLU pipeline: system_error detected, skipping entity extraction")
+            
+            # Trả về ngay với emergency response
+            merged = {
+                "query": question,
+                "language": language,
+                "intent": "system_error",
+                "intent_confidence": 1.0,
+                "entities": {},
+                "entity_confidence": 0.0,
+                "context": {
+                    "last_intent": "",
+                    "last_question": "",
+                    "last_product_mentioned": None,
+                    "memory_context": self.memory.get_context()
+                },
+                "enriched_text": None,
+                "keywords_detected": {},
+                "raw_outputs": {
+                    "intent_raw": intent_result,
+                    "entity_raw": ""
+                },
+                "llm_provider": "openai",
+                "overall_confidence": 1.0,
+                "suggested_responses": [],
+                "emergency_response": intent_result.get("emergency_response"),
+                "llm_error": True,
+                "error_type": intent_result.get("error_type", "unknown"),
+                "error_message": intent_result.get("error_message", "")
+            }
+            
+            logger.info(f"NLU Analysis complete with ERROR: {merged['error_type']}")
+            return merged
+        
+        # Nếu không có lỗi, tiếp tục extract entities
         entity_result = self.extract_entities(question, effective_language)
 
         # Hợp nhất kết quả
@@ -644,20 +725,25 @@ class NLUProcessor:
             "raw_outputs": {
                 "intent_raw": intent_result,
                 "entity_raw": entity_result.get("raw_output", "")
-            }
+            },
+            "llm_provider": "openai"
         }
         
-        # Tính điểm confidence tổng thể (weighted average)
         merged["overall_confidence"] = (
             intent_result["confidence"] * 0.6 + 
             entity_result["confidence"] * 0.4
         )
         
-        # Gợi ý câu hỏi tiếp theo
         merged["suggested_responses"] = self._generate_suggested_responses(
             intent_result["intent"],
             entity_result["entities"]
         )
+        
+        # KIỂM TRA: Nếu entity extraction có lỗi quota
+        if entity_result.get("llm_error") and entity_result.get("error_type") == "quota_exceeded":
+            merged["llm_error"] = True
+            merged["error_type"] = "quota_exceeded"
+            merged["error_message"] = entity_result.get("error_message", "")
         
         logger.info(f"NLU Analysis complete: intent={merged['intent']}, confidence={merged['overall_confidence']:.2f}")
         return merged
@@ -771,4 +857,3 @@ class NLUProcessor:
 def create_nlu_processor(llm=None, memory_manager=None) -> NLUProcessor:
     """Factory function tiện lợi để khởi tạo NLUProcessor"""
     return NLUProcessor(llm=llm, memory_manager=memory_manager)
-
