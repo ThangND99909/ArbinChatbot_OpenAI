@@ -3,6 +3,7 @@ from langchain.prompts import PromptTemplate
 from typing import Dict, Any, List, Optional, Tuple
 from .nlu_processor import NLUProcessor
 from .memory_manager import ArbinMemoryManager
+from ai_core.utils.text_normalizer import remove_accents
 
 import traceback
 import re
@@ -132,14 +133,17 @@ class ArbinRetrievalQA:
         """Thiết lập các QA chain dùng prompt từ prompts.py"""
 
         from ai_core.prompts import (
+            greeting_prompt,
             qa_prompt,
             tech_support_prompt,
             comparison_prompt,
-            general_support_prompt
+            general_support_prompt,
+            greeting_prompt
         )
 
         # Mapping intent → prompt template
         self.prompt_mapping = {
+            "greeting": greeting_prompt,
             "product_inquiry": qa_prompt,
             "technical_support": tech_support_prompt,
             "specification_request": qa_prompt,
@@ -223,6 +227,10 @@ class ArbinRetrievalQA:
                     response = response.get('text', '')
                 elif hasattr(response, 'content'):
                     response = response.content
+                intent_result = self.intent_llm.invoke({"question": question, "language": language})
+                intent = intent_result.get("intent", "unknown")
+                if intent == "out_of_domain":
+                    return "Xin lỗi, tôi chỉ trả lời các câu hỏi liên quan đến Arbin Instruments và thiết bị thử nghiệm pin."
                     
             except Exception as e:
                 print(f"OpenAI API error: {e}, trying alternative method...")
@@ -315,7 +323,7 @@ class ArbinRetrievalQA:
     def _get_retriever(self):
         """Tạo retriever từ vector store"""
         class VectorStoreRetriever:
-            def __init__(self, vector_store, k=5):
+            def __init__(self, vector_store, k=3):
                 self.vector_store = vector_store
                 self.k = k
             
@@ -347,6 +355,27 @@ class ArbinRetrievalQA:
         """
         Xử lý câu hỏi với pipeline hoàn chỉnh: NLU → Retrieval → Generation
         """
+        print(f"🔍 Vector store info:")
+        try:
+            # Kiểm tra số lượng documents
+            if hasattr(self.vector_store, 'get_collection_stats'):
+                stats = self.vector_store.get_collection_stats()
+                print(f"   Documents: {stats.get('total_documents', 'N/A')}")
+            
+            
+            # Chuẩn hóa câu hỏi trước khi tìm kiếm
+            normalized_query = remove_accents(question[:50].lower())
+
+            retriever = self._get_retriever()
+            test_docs = retriever.get_relevant_documents(normalized_query)
+            print(f"   Retrieved {len(test_docs)} documents for query")
+            
+            for i, doc in enumerate(test_docs[:3]):  # Hiển thị 3 docs đầu
+                print(f"   Doc {i+1}: {doc.page_content[:100]}...")
+                print(f"   Metadata: {doc.metadata}")
+                
+        except Exception as e:
+            print(f"   Vector store debug error: {e}")
         try:
             # === BƯỚC 0: PHÁT HIỆN NGÔN NGỮ ===
             final_language = self._resolve_language(question, language)
@@ -426,8 +455,10 @@ class ArbinRetrievalQA:
             print(f"📝 Effective query for retrieval: '{effective_query}'")
             
             # Bước 4: Retrieve documents
+            
             retriever = self._get_retriever()
-            docs = retriever.get_relevant_documents(effective_query)
+            query_norm = remove_accents(effective_query.lower())
+            docs = retriever.get_relevant_documents(query_norm)
             
             if not docs:
                 # Fallback: Thử với query gốc
@@ -570,7 +601,7 @@ class ArbinRetrievalQA:
         context_parts.append("")
         
         # Lọc và format documents
-        for i, doc in enumerate(docs[:5]):  # Giới hạn 5 documents
+        for i, doc in enumerate(docs[:3]):  # Giới hạn 3 documents
             # Extract metadata
             metadata = getattr(doc, 'metadata', {})
             title = metadata.get('title', f"Document {i+1}")
@@ -668,161 +699,70 @@ class ArbinRetrievalQA:
         return sources
 
     def _handle_no_documents(self, intent: str, question: str, language: str, chat_history: str) -> str:
-        """Xử lý thân thiện khi không tìm thấy documents"""
-        
-        intent_responses = {
-            "product_inquiry": {
-                "en": "I couldn't find specific information about this product in our current documentation. Please visit www.arbin.com/products for detailed product information.",
-                "vi": "Tôi không tìm thấy thông tin cụ thể về sản phẩm này trong tài liệu hiện có. Vui lòng truy cập www.arbin.com/products để biết thông tin chi tiết về sản phẩm."
-            },
-            "technical_support": {
-                "en": "I couldn't find troubleshooting information for this specific issue. Please contact Arbin technical support at support@arbin.com for assistance.",
-                "vi": "Tôi không tìm thấy thông tin xử lý sự cố cho vấn đề cụ thể này. Vui lòng liên hệ bộ phận hỗ trợ kỹ thuật Arbin tại support@arbin.com để được hỗ trợ."
-            },
-            "specification_request": {
-                "en": "I couldn't find the requested specifications in our current documentation. Please check the product datasheets at www.arbin.com/resources.",
-                "vi": "Tôi không tìm thấy thông số kỹ thuật được yêu cầu trong tài liệu hiện có. Vui lòng kiểm tra bảng dữ liệu sản phẩm tại www.arbin.com/resources."
-            },
-            "pricing_inquiry": {
-                "en": "Pricing information is not available in our public documentation. Please contact sales@arbin.com for a customized quote.",
-                "vi": "Thông tin giá cả không có sẵn trong tài liệu công khai. Vui lòng liên hệ sales@arbin.com để nhận báo giá tùy chỉnh."
-            },
-            "general_info": {
-                "en": "I couldn't find relevant information in our documentation. Please try rephrasing your question or visit www.arbin.com for more information.",
-                "vi": "Tôi không tìm thấy thông tin liên quan trong tài liệu. Vui lòng thử diễn đạt lại câu hỏi hoặc truy cập www.arbin.com để biết thêm thông tin."
-            },
-            "comparison_request": {
-                "en": "I couldn't find comparison information in our current documentation. Please check the product comparison guides at www.arbin.com/resources.",
-                "vi": "Tôi không tìm thấy thông tin so sánh trong tài liệu hiện có. Vui lòng kiểm tra hướng dẫn so sánh sản phẩm tại www.arbin.com/resources."
-            },
-            "application_info": {
-                "en": "I couldn't find application-specific information in our documentation. Please contact applications@arbin.com for specialized advice.",
-                "vi": "Tôi không tìm thấy thông tin ứng dụng cụ thể trong tài liệu. Vui lòng liên hệ applications@arbin.com để được tư vấn chuyên sâu."
-            }
-        }
-        
-        # Thêm knowledge base về MITS Pro (giống Gemini version)
-        mits_pro_knowledge = {
-            "vi": """
-            **Về MITS Pro:**
-            MITS Pro là phần mềm điều khiển chính của Arbin, thường cung cấp:
-            1. Giao diện lập trình menu cho chu kỳ sạc/xả
-            2. Các điều kiện dừng (stop conditions) có thể cấu hình
-            3. Logic điều khiển linh hoạt
-            
-            **Gợi ý cấu hình:**
-            Để thiết lập điều kiện dừng khi điện áp đạt V và dòng ≤ I:
-            - Tìm menu "Stop Conditions" hoặc "Safety Limits"
-            - Đặt Voltage Stop = giá trị V mong muốn
-            - Đặt Current Stop ≤ giá trị I mong muốn
-            - Kích hoạt cả hai điều kiện đồng thời
-            
-            **Tài nguyên hỗ trợ:**
-            - User Manual MITS Pro (tìm trong Documents/Software)
-            - Video tutorials trên YouTube chanel Arbin
-            - Email hỗ trợ: support@arbin.com
-            """,
-            
-            "en": """
-            **About MITS Pro:**
-            MITS Pro is Arbin's main control software, typically providing:
-            1. Menu-driven programming interface for charge/discharge cycles
-            2. Configurable stop conditions
-            3. Flexible control logic
-            
-            **Configuration tips:**
-            To set stop condition when voltage reaches V and current ≤ I:
-            - Look for "Stop Conditions" or "Safety Limits" menu
-            - Set Voltage Stop = desired V value
-            - Set Current Stop ≤ desired I value
-            - Enable both conditions simultaneously
-            
-            **Support resources:**
-            - MITS Pro User Manual (check Documents/Software folder)
-            - Video tutorials on Arbin YouTube channel
-            - Email support: support@arbin.com
-            """
-        }
-        
-        # Thêm thông tin liên hệ tổng hợp (giống Gemini version)
-        contact_knowledge = {
-            "vi": """
-            **Thông tin liên hệ Arbin Instruments:**
-            
-            📧 **Email hỗ trợ kỹ thuật:** support@arbin.com
-            📧 **Email bán hàng:** sales@arbin.com
-            🌐 **Website:** www.arbin.com
-            
-            **Giờ làm việc hỗ trợ (giờ Mỹ CST):**
-            - Thứ 2 - Thứ 6: 8:00 AM - 5:00 PM
-            - Có hỗ trợ khẩn cấp ngoài giờ
-            
-            **Để được hỗ trợ nhanh nhất:**
-            1. Cung cấp số serial thiết bị (nếu có)
-            2. Mô tả chi tiết vấn đề
-            3. Đính kèm file log (nếu có lỗi)
-            
-            Nếu cần số điện thoại cụ thể, vui lòng kiểm tra trang "Contact Us" trên website.
-            """,
-            
-            "en": """
-            **Arbin Instruments Contact Information:**
-            
-            📧 **Technical Support:** support@arbin.com
-            📧 **Sales Inquiries:** sales@arbin.com
-            🌐 **Website:** www.arbin.com
-            
-            **Support Hours (US CST):**
-            - Monday - Friday: 8:00 AM - 5:00 PM
-            - Emergency support available
-            
-            **For fastest support:**
-            1. Provide equipment serial number (if available)
-            2. Describe the issue in detail
-            3. Attach log files (if error occurs)
-            
-            For specific phone numbers, please check the "Contact Us" page on the website.
-            """
-        }
-        
-        # Xác định ngôn ngữ
+        """
+        Gọi KnowledgeBase khi không tìm thấy tài liệu trong vector store.
+        Phiên bản nâng cao: trả lời tự nhiên, dựa trên lịch sử hội thoại,
+        thêm follow-up question giống ChatGPT.
+        """
+        from ai_core.knowledge_base import KnowledgeBase
+        import os
+
+        # 1️⃣ Xác định ngôn ngữ
         lang = language if language in ["vi", "en"] else "en"
-        
-        # Kiểm tra nội dung câu hỏi
-        question_lower = question.lower()
-        
-        # Thêm prefix thân thiện
+
+        # 2️⃣ Prefix thân thiện, dạng mở đầu hội thoại
         friendly_intro = {
             "vi": "Cảm ơn bạn đã hỏi! ",
             "en": "Thanks for asking! "
-        }.get(lang, "")
-        
-        # Xử lý từng trường hợp (giống Gemini version)
-        if "mits pro" in question_lower or any(word in question_lower for word in ["cấu hình", "thiết lập", "setup", "configure"]):
-            response = f"{friendly_intro}Tôi hiểu bạn cần hướng dẫn cấu hình MITS Pro.\n\n{mits_pro_knowledge.get(lang, mits_pro_knowledge['en'])}"
-        
-        elif any(word in question_lower for word in ["số điện thoại", "phone", "liên hệ", "contact", "địa chỉ"]):
-            response = f"{friendly_intro}{contact_knowledge.get(lang, contact_knowledge['en'])}"
-        
-        elif intent in intent_responses:
-            base_response = intent_responses[intent].get(lang, intent_responses[intent]["en"])
-            response = f"{friendly_intro}{base_response}"
-        
-        else:
-            # Fallback responses (FIXED: khai báo đúng)
-            fallback_responses = {
-                "vi": "Tôi chưa tìm thấy thông tin cụ thể trong tài liệu hiện có. Bạn có thể thử diễn đạt lại câu hỏi hoặc truy cập www.arbin.com để tìm thêm thông tin.",
-                "en": "I haven't found specific information in our current documentation. You might try rephrasing your question or visit www.arbin.com for more information."
-            }
-            response = f"{friendly_intro}{fallback_responses.get(lang, fallback_responses['en'])}"
-        
-        # Thêm đề xuất tiếp theo
-        next_step = {
-            "vi": "\n\nTôi có thể giúp gì thêm cho bạn không?",
-            "en": "\n\nIs there anything else I can help you with?"
-        }.get(lang, "")
-        
-        return response + next_step
+        }[lang]
+
+        # 3️⃣ Load KnowledgeBase
+        kb_path = os.path.join(os.path.dirname(__file__), "knowledge_base", "knowledge_base.json")
+        kb_response = None
+
+        if os.path.exists(kb_path):
+            try:
+                kb = KnowledgeBase(kb_path)
+                kb_response = kb.find_answer(question, lang)
+            except Exception as e:
+                print(f"⚠️ KnowledgeBase load error: {e}")
+
+        # 4️⃣ Nếu KB không trả lời được, tạo fallback message tự nhiên, dựa trên intent
+        if not kb_response:
+            if lang == "vi":
+                kb_response = (
+                    "Mình chưa tìm thấy thông tin cụ thể cho câu hỏi này. "
+                    "Bạn có thể truy cập www.arbin.com hoặc gửi email đến support@arbin.com để biết thêm chi tiết. "
+                    "Nếu muốn, mình có thể gợi ý một số cách kiểm tra hoặc tìm thông tin khác cho bạn. "
+                )
+            else:
+                kb_response = (
+                    "I couldn’t find specific information for this question. "
+                    "You may check www.arbin.com or email support@arbin.com for more details. "
+                    "If you like, I can suggest ways to find more info or troubleshoot."
+                )
+
+        # 5️⃣ Thêm follow-up dựa trên lịch sử hội thoại
+        if chat_history:
+            follow_up = {
+                "vi": "Bạn có muốn mình giải thích thêm hoặc cung cấp hướng dẫn chi tiết không?",
+                "en": "Would you like me to explain further or provide step-by-step guidance?"
+            }[lang]
+            kb_response = f"{kb_response} {follow_up}"
+
+        # 6️⃣ Giới hạn độ dài câu trả lời
+        max_len = 600
+        if len(kb_response) > max_len:
+            kb_response = kb_response[:max_len] + "..."
+
+        # 7️⃣ Gộp prefix và nội dung trả lời
+        full_response = f"{friendly_intro}{kb_response}"
+
+        # 8️⃣ Log chi tiết
+        print(f"📘 [KB/Fallback] Intent={intent} | Lang={lang} | Question={question[:50]} | Answer={kb_response[:80]}...")
+
+        return full_response
+
 
     # ================= BATCH PROCESSING =================
     def batch_get_response(self, questions: List[str], session_id: str = "default",

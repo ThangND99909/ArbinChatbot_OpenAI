@@ -21,6 +21,8 @@ logs/
 *.bin
 .cache/
 .ipynb_checkpoints/
+data/
+outputs/
 
 # ===== Node.js frontend =====
 node_modules/
@@ -46,6 +48,8 @@ vector_store/
 data/
 outputs/
 __temp__/
+backups/
+chroma.sqlite3/
 
 # ===== IDEs =====
 .vscode/
@@ -60,3 +64,5 @@ Thumbs.db
 *.bak
 *.swp
 *.swo
+
+model_cache/

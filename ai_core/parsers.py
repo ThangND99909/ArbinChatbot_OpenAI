@@ -26,75 +26,85 @@ class NLUOutputParser(BaseOutputParser):
     def parse(self, text: str) -> Dict[str, Any]:
         """
         Parse JSON output từ LLM với xử lý lỗi mạnh mẽ
-        
-        Args:
-            text: Raw text output từ LLM
-            
-        Returns:
-            Dict[str, Any]: Parsed JSON data hoặc empty dict nếu lỗi
         """
         try:
-            # Log phần đầu của output LLM để tiện debug (giới hạn tối đa 500 ký tự)
-            log_text = text[:500] + "..." if len(text) > 500 else text
-            logger.debug(f"🔹 Raw LLM output: {log_text}")
+            print(f"🔴 PARSER RAW INPUT (first 1000 chars): {text[:1000]}")
             
-            # ==== Pattern 1: Thử tìm JSON trong markdown code block ====
-            # LLM thường trả kết quả trong ```json ... ``` hoặc ``` ... ```
-            # hoặc chỉ là { ... } nên ta dò tìm theo các pattern dưới đây
+            # Remove any leading/trailing whitespace
+            text = text.strip()
+            
+            # Phát hiện nếu text đã là JSON hợp lệ (bắt đầu bằng { và kết thúc bằng })
+            if text.startswith('{') and text.endswith('}'):
+                try:
+                    parsed = json.loads(text)
+                    print(f"🟢 Parsed as clean JSON directly")
+                    parsed = self._validate_arbin_structure(parsed)
+                    return parsed
+                except json.JSONDecodeError as e:
+                    print(f"🟡 Direct JSON parse failed, trying cleanup: {e}")
+            
+            # ====== Pattern 1: Tìm JSON trong code blocks ======
             json_patterns = [
-                r'```json\s*(.*?)\s*```',  # ```json { ... } ```
-                r'```\s*(.*?)\s*```',      # ``` { ... } ```
-                r'\{.*\}',                 # { ... } (bất kỳ)
+                r'```json\s*(\{.*?\})\s*```',  # ```json { ... } ```
+                r'```\s*(\{.*?\})\s*```',      # ``` { ... } ```
             ]
             
-            for pattern in json_patterns:
-                match = re.search(pattern, text, re.DOTALL)
-                if match:
-                    if pattern.startswith('```'):
-                        json_str = match.group(1)
-                    else:
-                        json_str = match.group(0)
-                    
-                    # Làm sạch chuỗi JSON để tránh lỗi parse
-                    json_str = self._clean_json_string(json_str)
-                    
+            for i, pattern in enumerate(json_patterns):
+                print(f"Trying pattern {i}: {pattern}")
+                matches = re.findall(pattern, text, re.DOTALL)
+                if matches:
+                    json_str = matches[0]
+                    print(f"Found JSON in pattern {i}: {json_str[:200]}...")
                     try:
-                        # Thử parse JSON
                         parsed = json.loads(json_str)
-                        logger.debug(f"Successfully parsed JSON using pattern")
-                        
-                        # Chuẩn hóa cấu trúc dữ liệu theo format của Arbin
+                        print(f"✅ Successfully parsed JSON from pattern {i}")
                         parsed = self._validate_arbin_structure(parsed)
-                        
                         return parsed
                     except json.JSONDecodeError as e:
-                        # Nếu lỗi JSON thì thử pattern kế tiếp
-                        logger.debug(f"JSON decode error: {e}")
-                        continue
+                        print(f"❌ JSON decode error pattern {i}: {e}")
+                        print(f"JSON string: {json_str[:500]}")
+                        # Try to clean and parse again
+                        json_str = self._clean_json_string(json_str)
+                        try:
+                            parsed = json.loads(json_str)
+                            print(f"✅ Successfully parsed after cleanup")
+                            parsed = self._validate_arbin_structure(parsed)
+                            return parsed
+                        except:
+                            continue
             
-            # ==== Pattern 2: Nếu không tìm thấy JSON trong code block, thử parse toàn bộ text ====
-            try:
-                text_clean = self._clean_json_string(text)
-                parsed = json.loads(text_clean)
-                logger.debug("Successfully parsed entire text as JSON")
-                
-                parsed = self._validate_arbin_structure(parsed)
-                return parsed
-            except json.JSONDecodeError:
-                logger.warning("Không tìm thấy JSON hợp lệ trong output")
-                
-                # ==== Fallback: Nếu thất bại hoàn toàn, thử trích xuất thủ công các cặp key-value ====
-                extracted_data = self._extract_key_value_pairs(text)
-                if extracted_data:
-                    logger.debug(f"Extracted key-value pairs")
-                    return extracted_data
-                
-                # Không parse được gì thì trả về dict rỗng
-                return {}
-                
+            # ====== Pattern 2: Tìm JSON block đơn giản ======
+            # Tìm chuỗi bắt đầu bằng { và kết thúc bằng }, có thể có nested {}
+            json_block_pattern = r'(\{(?:[^{}]|(?:\{[^{}]*\}))*\})'
+            matches = re.findall(json_block_pattern, text, re.DOTALL)
+            
+            for match in matches:
+                print(f"Found potential JSON block: {match[:200]}...")
+                try:
+                    # Clean the string
+                    clean_match = self._clean_json_string(match)
+                    parsed = json.loads(clean_match)
+                    print(f"✅ Parsed from JSON block")
+                    parsed = self._validate_arbin_structure(parsed)
+                    return parsed
+                except json.JSONDecodeError as e:
+                    print(f"JSON block parse failed: {e}")
+                    continue
+            
+            # ====== Fallback: Manual extraction ======
+            print("⚠️ All JSON parsing methods failed, trying manual extraction")
+            extracted_data = self._extract_key_value_pairs(text)
+            if extracted_data:
+                print(f"🟡 Extracted data manually: {extracted_data}")
+                return extracted_data
+            
+            print("❌ Could not parse any JSON from LLM output")
+            return {}
+            
         except Exception as e:
-            # Bắt lỗi bất ngờ để tránh crash toàn hệ thống
-            logger.error(f"Parse error: {str(e)[:100]}")
+            print(f"❌ Parser exception: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
     
     def _clean_json_string(self, json_str: str) -> str:
@@ -118,25 +128,49 @@ class NLUOutputParser(BaseOutputParser):
     
     def _validate_arbin_structure(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Kiểm tra và chuẩn hóa cấu trúc dữ liệu theo định dạng Arbin
-        - Đảm bảo các trường bắt buộc tồn tại
-        - Chuyển kiểu dữ liệu về đúng định dạng
+        Kiểm tra và chuẩn hóa cấu trúc dữ liệu
         """
-        # Nếu có intent mà thiếu confidence → thêm mặc định
-        if "intent" in data:
-            if "confidence" not in data:
-                data["confidence"] = 0.7  # Mặc định độ tin cậy 70%
-            if not isinstance(data["confidence"], (int, float)):
-                try:
-                    data["confidence"] = float(data["confidence"])
-                except:
-                    data["confidence"] = 0.0
+        print(f"🛠️ VALIDATE STRUCTURE input: {data}")
         
-        # Nếu có entities nhưng không đúng kiểu dict thì reset về dict rỗng
+        # Đảm bảo intent tồn tại
+        if "intent" not in data:
+            # Cố gắng tìm intent từ các field khác
+            for key in ["intent", "classification", "type", "category"]:
+                if key in data:
+                    data["intent"] = data[key]
+                    break
+            else:
+                data["intent"] = "unknown"
+        
+        # Đảm bảo confidence tồn tại và là số
+        if "confidence" not in data:
+            # Tự tính confidence nếu không có
+            data["confidence"] = 0.7  # Default medium confidence
+        else:
+            try:
+                conf = float(data["confidence"])
+                data["confidence"] = max(0.0, min(1.0, conf))
+            except:
+                data["confidence"] = 0.5
+        
+        # Đảm bảo entities tồn tại và là dict
         if "entities" in data:
             if not isinstance(data["entities"], dict):
                 data["entities"] = {}
+        else:
+            # Nếu không có entities nhưng có các field entity riêng lẻ
+            entity_fields = ["product_names", "technical_terms", "specifications"]
+            found_entities = {}
+            for field in entity_fields:
+                if field in data:
+                    found_entities[field] = data.pop(field)
+            
+            if found_entities:
+                data["entities"] = found_entities
+            else:
+                data["entities"] = {}
         
+        print(f"🛠️ VALIDATE STRUCTURE output: {data}")
         return data
     
     def _extract_key_value_pairs(self, text: str) -> Dict[str, Any]:

@@ -87,7 +87,9 @@ def _contains_any(haystack: str, needles) -> bool:
 QUESTION_TRIGGERS = [
     "là gì", "la gi", "giới thiệu", "gioi thieu", "thông tin", "thong tin",
     "bao nhiêu", "bao nhieu", "vì sao", "vi sao", "?", "how", "what", "which",
-    "tại sao", "tai sao", "thế nào", "the nao", "cách", "cach", "how to"
+    "tại sao", "tai sao", "thế nào", "the nao", "cách", "cach", "how to",
+    # Thêm greetings để detect intent greeting
+    "hello", "hi", "hey", "xin chào", "chào", "greetings"
 ]
 
 # Từ khóa sản phẩm Arbin (ví dụ BT2000, MITS, EV Test...)
@@ -165,6 +167,18 @@ class NLUProcessor:
         llm: mô hình LLM (OpenAI)  # Đã cập nhật comment
         memory_manager: đối tượng quản lý hội thoại (để lấy intent, question, v.v.)
         """
+        if llm is None:
+            try:
+                from ai_core.llm_chain import OpenAILLM
+                self.llm = OpenAILLM()
+            except Exception as e:
+                print(f"⚠️ Failed to create OpenAILLM: {e}")
+                # Fallback
+                from ai_core.llm_chain import get_llm_manager
+                llm_manager = get_llm_manager(use_openai=False)  # Force fallback
+                self.llm = llm_manager.llm
+        else:
+            self.llm = llm
         self.llm = llm or OpenAILLM()  # Đã đổi từ GeminiLLM sang OpenAILLM
         self.memory_manager = memory_manager
         self.memory = ContextMemory()  # Bộ nhớ ngữ cảnh cục bộ
@@ -186,6 +200,34 @@ class NLUProcessor:
         )
         
         logger.info("✅ Arbin NLUProcessor initialized (using OpenAI)")  # Đã cập nhật log
+
+    def _is_pure_greeting(self, text: str) -> bool:
+        """Kiểm tra xem câu có phải chỉ là greeting không"""
+        if not text:
+            return False
+        
+        text_lower = text.lower().strip()
+        text_ascii = _strip_accents(text_lower)
+        
+        # Danh sách greeting patterns
+        greeting_patterns = [
+            "hello", "hi", "hey", "xin chào", "chào", "greetings",
+            "hello!", "hi!", "hey!", "xin chào!", "chào!"
+        ]
+        
+        # Kiểm tra exact match
+        for pattern in greeting_patterns:
+            if text_lower == pattern or text_ascii == pattern:
+                return True
+        
+        # Kiểm tra câu rất ngắn (1-2 từ) và bắt đầu bằng greeting
+        words = text_lower.split()
+        if len(words) <= 2:
+            for pattern in ["hello", "hi", "hey", "xin chào", "chào"]:
+                if text_lower.startswith(pattern):
+                    return True
+        
+        return False
 
     # =======================================================
     # HÀM LẤY TIN NHẮN ASSISTANT GẦN NHẤT
@@ -212,13 +254,24 @@ class NLUProcessor:
         Kết hợp AI (OpenAI) + heuristic (keyword fallback)
         """
         try:
+            print(f"\n🎯 [DETECT_INTENT START] question='{question[:50]}...', lang={language}, session={session_id}")
+            
             # Gọi LLM chain để dự đoán intent
             try:
                 raw = self.intent_chain.invoke({"question": question, "language": language})
+                
+                # DEBUG CHI TIẾT
+                print(f"🎯 [RAW LLM RESPONSE] type: {type(raw)}")
+                if isinstance(raw, dict):
+                    print(f"🎯 [RAW DICT KEYS]: {list(raw.keys())}")
+                    for k, v in raw.items():
+                        print(f"   '{k}': {str(v)[:100]}...")
+                else:
+                    print(f"🎯 [RAW VALUE]: {str(raw)[:200]}...")
+                    
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"NLU INTENT DETECTION ERROR: {error_msg}")
-                print(f"❌ NLU INTENT DETECTION ERROR: {error_msg}")
+                print(f"❌ [INTENT DETECTION ERROR]: {error_msg}")
                 
                 # NẾU LÀ LỖI QUOTA - TRẢ VỀ ERROR RESPONSE NGAY
                 if "insufficient_quota" in error_msg or "429" in error_msg or "quota" in error_msg.lower():
@@ -244,40 +297,99 @@ class NLUProcessor:
                     }
                 
                 # Nếu lỗi khác → fallback keyword
+                print("⚠️ Falling back to keyword detection")
                 return self._get_intent_by_keywords_fallback(question, session_id)
             
-            # Chuẩn hóa output
+            # ========== XỬ LÝ OUTPUT TỪ LLM ==========
+            # Chuẩn hóa output text
             if isinstance(raw, dict):
+                # LLMChain thường trả về dict với key 'text' hoặc 'answer'
                 if 'answer' in raw:
                     output_text = raw['answer']
+                    print(f"🎯 [EXTRACTED FROM 'answer']: {str(output_text)[:200]}...")
                 elif 'text' in raw:
                     output_text = raw['text']
+                    print(f"🎯 [EXTRACTED FROM 'text']: {str(output_text)[:200]}...")
                 else:
+                    # Thử tìm bất kỳ giá trị nào có thể là JSON
                     output_text = str(raw)
+                    print(f"🎯 [USING RAW AS STRING]: {str(output_text)[:200]}...")
             else:
                 output_text = str(raw)
+                print(f"🎯 [NON-DICT RAW TO STRING]: {str(output_text)[:200]}...")
             
-            # Parse kết quả từ LLM (dạng JSON)
+            # ========== PARSE KẾT QUẢ ==========
+            intent = "unknown"
+            confidence = 0.0
+            
             try:
+                # Parse kết quả từ LLM (dạng JSON)
+                print(f"🎯 [PARSING OUTPUT TEXT] length: {len(output_text)}")
+                
+                # Nếu output_text đã là dict (parse sẵn)
                 if isinstance(output_text, dict):
-                    output_text = json.dumps(output_text, ensure_ascii=False)
-                parsed = self.intent_chain.output_parser.parse(output_text)
+                    parsed = output_text
+                    print(f"🎯 [OUTPUT_TEXT IS ALREADY DICT]: {parsed}")
+                else:
+                    # Parse từ string
+                    parsed = self.intent_chain.output_parser.parse(output_text)
+                    print(f"🎯 [PARSER RESULT]: {parsed}")
+                
+                # XỬ LÝ KẾT QUẢ PARSE
                 if isinstance(parsed, dict):
                     intent = parsed.get("intent", "unknown")
-                    confidence = float(parsed.get("confidence", 0.0))
+                    
+                    # FIX: XỬ LÝ CONFIDENCE - QUAN TRỌNG
+                    if "confidence" in parsed:
+                        try:
+                            conf_raw = parsed["confidence"]
+                            # Chuyển đổi confidence thành float
+                            if isinstance(conf_raw, (int, float)):
+                                confidence = float(conf_raw)
+                            elif isinstance(conf_raw, str):
+                                # Xử lý string confidence
+                                if "%" in conf_raw:
+                                    confidence = float(conf_raw.replace("%", "")) / 100.0
+                                else:
+                                    confidence = float(conf_raw)
+                            else:
+                                confidence = 0.5  # Default
+                        except (ValueError, TypeError):
+                            print(f"⚠️ Could not parse confidence: {parsed.get('confidence')}")
+                            confidence = 0.5
+                    else:
+                        # FIX: Nếu không có confidence, tự tính
+                        print("⚠️ No confidence field in parsed result, calculating...")
+                        confidence = self._calculate_intent_confidence(parsed, question)
+                        
+                        # Thêm confidence vào parsed để nhất quán
+                        parsed["confidence"] = confidence
+                        
                 else:
+                    print(f"⚠️ Parsed result is not dict: {type(parsed)}")
                     intent = "unknown"
-                    confidence = 0.0
+                    confidence = 0.3
+                    
             except Exception as e:
-                logger.warning(f"Failed to parse LLM output: {e}")
+                print(f"❌ [PARSING ERROR]: {e}")
+                import traceback
+                traceback.print_exc()
                 intent = "unknown"
-                confidence = 0.0
+                confidence = 0.2
+            
+            # ========== POST-PROCESSING ==========
+            # Kiểm tra greeting override
+            if intent in ["other", "unknown"] and self._is_pure_greeting(question):
+                print(f"🔍 Overriding intent from '{intent}' to 'greeting' for: '{question}'")
+                intent = "greeting"
+                confidence = max(confidence, 0.95)
             
             # Lấy intent và question gần nhất từ memory_manager
             last_intent, last_question = "", ""
             if self.memory_manager:
                 last_intent = self.memory_manager.get_last_intent(session_id)
                 last_question = self.memory_manager.get_last_question(session_id)
+                print(f"🎯 [MEMORY CONTEXT] last_intent='{last_intent}', last_question='{last_question[:50]}...'")
 
             # Chuẩn hóa text để match keywords
             t_lc = question.strip().lower()
@@ -294,51 +406,69 @@ class NLUProcessor:
             has_product_kw = _contains_any(t_lc, PRODUCT_KEYWORDS) or _contains_any(t_ascii, PRODUCT_KEYWORDS)
             has_question_word = _contains_any(t_lc, QUESTION_TRIGGERS) or _contains_any(t_ascii, QUESTION_TRIGGERS)
 
+            # ========== HEURISTIC BOOST ==========
             # Nâng cấp intent dựa trên heuristic / keyword
             enriched_text = None
+            heuristic_boost_applied = False
             
             if intent == "unknown" or confidence < 0.3:
+                print(f"⚠️ Low confidence ({confidence}), applying heuristic boost...")
+                
                 if has_tech_support_kw:
                     intent = "technical_support"
                     confidence = max(confidence, 0.7)
+                    heuristic_boost_applied = True
                 elif has_spec_kw:
                     intent = "specification_request"
                     confidence = max(confidence, 0.7)
+                    heuristic_boost_applied = True
                 elif has_pricing_kw:
                     intent = "pricing_inquiry"
                     confidence = max(confidence, 0.7)
+                    heuristic_boost_applied = True
                 elif has_comparison_kw:
                     intent = "comparison_request"
                     confidence = max(confidence, 0.7)
+                    heuristic_boost_applied = True
                 elif has_application_kw:
                     intent = "application_info"
                     confidence = max(confidence, 0.7)
+                    heuristic_boost_applied = True
                 elif has_product_kw and has_question_word:
                     intent = "product_inquiry"
                     confidence = max(confidence, 0.6)
+                    heuristic_boost_applied = True
                 elif has_product_kw:
                     intent = "product_inquiry"
                     confidence = max(confidence, 0.5)
-
+                    heuristic_boost_applied = True
+            
+            # ========== CONTUAL ENRICHMENT ==========
             if last_intent == "product_inquiry" and is_short and has_product_kw:
                 intent = "product_inquiry"
                 enriched_text = f"{last_question} {question}" if last_question else question
-            
+                print(f"🔗 Context linking: last_intent='product_inquiry' → current='{intent}'")
+                
             elif last_intent == "product_inquiry" and has_spec_kw:
                 intent = "specification_request"
                 enriched_text = f"specifications of {self.memory.last_product_mentioned or 'the product'} {question}"
+                print(f"🔗 Context enrichment: product inquiry + spec request")
 
             if not enriched_text and is_short and last_question:
                 enriched_text = f"{last_question} {question}"
+            
             if enriched_text is None:
                 enriched_text = question
 
+            # ========== UPDATE MEMORY ==========
             if intent != "unknown":
                 self.memory.update(intent, {})
+                print(f"✅ Updated local memory with intent: {intent}")
 
-            return {
+            # ========== FINAL RESULT ==========
+            result = {
                 "intent": intent,
-                "confidence": confidence,
+                "confidence": round(confidence, 2),  # Làm tròn 2 chữ số
                 "last_intent": last_intent,
                 "last_question": last_question,
                 "last_product_mentioned": self.memory.last_product_mentioned,
@@ -351,10 +481,17 @@ class NLUProcessor:
                     "has_pricing": has_pricing_kw,
                     "has_comparison": has_comparison_kw,
                     "has_application": has_application_kw
-                }
+                },
+                "heuristic_boost": heuristic_boost_applied
             }
+            
+            print(f"✅ [DETECT_INTENT FINAL] intent='{intent}', confidence={confidence:.2f}, heuristic={heuristic_boost_applied}")
+            return result
 
-        except Exception:
+        except Exception as e:
+            print(f"❌ [DETECT_INTENT EXCEPTION]: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "intent": "system_error",
                 "confidence": 0.0,
@@ -362,8 +499,58 @@ class NLUProcessor:
                 "last_question": "",
                 "enriched_text": None,
                 "keywords_detected": {},
-                "emergency_response": "System error occurred"
+                "emergency_response": f"System error in intent detection: {str(e)[:100]}"
             }
+        
+    def _calculate_intent_confidence(self, parsed_data: Dict, question: str) -> float:
+        """
+        Tính confidence khi LLM không trả về confidence
+        """
+        print(f"🧮 Calculating intent confidence...")
+        
+        base_conf = 0.5  # Base medium confidence
+        
+        # 1. Kiểm tra intent clarity
+        intent = parsed_data.get("intent", "")
+        if intent in ["product_inquiry", "technical_support", "specification_request"]:
+            base_conf += 0.2  # Các intent rõ ràng
+            print(f"   +0.2 for clear intent: {intent}")
+        
+        # 2. Kiểm tra explanation
+        if parsed_data.get("explanation"):
+            explanation = parsed_data["explanation"]
+            if len(explanation) > 10:  # Explanation có chất lượng
+                base_conf += 0.15
+                print(f"   +0.15 for good explanation")
+        
+        # 3. Kiểm tra alternative intents
+        if parsed_data.get("alternative_intents"):
+            alts = parsed_data["alternative_intents"]
+            if isinstance(alts, list) and len(alts) == 0:
+                base_conf += 0.1  # Không có alternative → confident hơn
+                print(f"   +0.1 for no alternatives")
+        
+        # 4. Kiểm tra độ dài câu hỏi
+        words = question.strip().split()
+        if len(words) <= 2:
+            base_conf -= 0.1  # Câu quá ngắn → less confident
+            print(f"   -0.1 for short question")
+        elif len(words) >= 5:
+            base_conf += 0.05  # Câu đủ dài → more context
+            print(f"   +0.05 for detailed question")
+        
+        # 5. Kiểm tra keyword matching (fallback logic)
+        t_lc = question.lower()
+        if "bt" in t_lc or "arbin" in t_lc or "battery" in t_lc:
+            if intent == "product_inquiry":
+                base_conf += 0.1
+                print(f"   +0.1 for keyword match with intent")
+        
+        # Giới hạn trong khoảng 0.1-1.0
+        final_conf = max(0.1, min(1.0, base_conf))
+        print(f"🧮 Final calculated confidence: {final_conf:.2f}")
+        
+        return round(final_conf, 2)
 
     # =======================================================
     # FALLBACK PHÁT HIỆN INTENT BẰNG KEYWORDS (KHÔNG CẦN AI)
@@ -378,7 +565,17 @@ class NLUProcessor:
         # Chuẩn hóa text (chữ thường + bỏ dấu)
         t_lc = question.strip().lower()
         t_ascii = _strip_accents(t_lc)
-        
+        if self._is_pure_greeting(question):
+            return {
+                "intent": "greeting",
+                "confidence": 0.95,
+                "last_intent": "",
+                "last_question": "",
+                "last_product_mentioned": None,
+                "enriched_text": question,
+                "keywords_detected": {"has_greeting": True},
+                "intent_override_applied": True
+            }
         # Kiểm tra từng nhóm keyword
         has_product_kw = _contains_any(t_lc, PRODUCT_KEYWORDS) or _contains_any(t_ascii, PRODUCT_KEYWORDS)
         has_tech_support_kw = _contains_any(t_lc, TECH_SUPPORT_KEYWORDS) or _contains_any(t_ascii, TECH_SUPPORT_KEYWORDS)
@@ -486,6 +683,16 @@ class NLUProcessor:
             # Thử gọi LLM chain
             try:
                 result = self.entity_chain.invoke({"question": question, "language": language})
+                
+                # DEBUG: In ra raw result
+                print(f"🔍 ENTITY EXTRACTION RAW RESULT:")
+                print(f"   Type: {type(result)}")
+                if isinstance(result, dict):
+                    for k, v in result.items():
+                        print(f"   {k}: {str(v)[:200]}...")
+                else:
+                    print(f"   Value: {str(result)[:500]}...")
+                    
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"ENTITY EXTRACTION ERROR: {error_msg}")
@@ -523,33 +730,29 @@ class NLUProcessor:
             else:
                 output_text = str(result)
             
+            print(f"🔍 ENTITY OUTPUT TEXT: {output_text[:500]}...")
+            
             # Parse dữ liệu JSON trả về từ LLM
             try:
                 if isinstance(output_text, dict):
                     output_text = json.dumps(output_text, ensure_ascii=False)
                 
                 parsed = self.entity_chain.output_parser.parse(output_text)
+                print(f"🔍 ENTITY PARSED RESULT: {parsed}")
                 
+                # ĐẢM BẢO CẤU TRÚC ĐÚNG
                 if isinstance(parsed, dict):
-                    entities = parsed.get("entities", {
-                        "product_names": [],
-                        "technical_terms": [],
-                        "specifications": [],
-                        "applications": [],
-                        "features": [],
-                        "issues": [],
-                        "software_components": [],
-                        "locations": []
-                    })
-                    confidence = parsed.get("confidence", 0.7)
+                    entities = parsed.get("entities", {})
+                    confidence_raw = parsed.get("confidence", 0.7)
+                    
+                    # CHUẨN HÓA CONFIDENCE
+                    confidence = self._normalize_confidence(confidence_raw)
                 else:
-                    entities = {k: [] for k in [
-                        "product_names", "technical_terms", "specifications", "applications",
-                        "features", "issues", "software_components", "locations"
-                    ]}
+                    entities = {}
                     confidence = 0.4
                     
             except Exception as e:
+                print(f"❌ ENTITY PARSER ERROR: {e}")
                 logger.warning(f"Failed to parse LLM output for entities: {e}")
                 entities = self._keyword_entity_extraction(question)
                 confidence = 0.4
@@ -568,7 +771,7 @@ class NLUProcessor:
             
             return {
                 "entities": entities,
-                "confidence": confidence,
+                "confidence": confidence,  # Đã được normalize
                 "raw_output": str(output_text)[:500] if output_text else "",
                 "llm_error": False
             }
@@ -706,14 +909,19 @@ class NLUProcessor:
         # Nếu không có lỗi, tiếp tục extract entities
         entity_result = self.extract_entities(question, effective_language)
 
-        # Hợp nhất kết quả
+        # DEBUG: Kiểm tra entity_result structure
+        print(f"🔍 DEBUG entity_result: {entity_result.keys() if isinstance(entity_result, dict) else type(entity_result)}")
+        if isinstance(entity_result, dict):
+            print(f"🔍 DEBUG entity_confidence type: {type(entity_result.get('confidence'))}, value: {entity_result.get('confidence')}")
+        
+        # Hợp nhất kết quả - SỬA LỖI CÚ PHÁP
         merged = {
             "query": question,
             "language": language,
-            "intent": intent_result["intent"],
-            "intent_confidence": intent_result["confidence"],
-            "entities": entity_result["entities"],
-            "entity_confidence": entity_result["confidence"],
+            "intent": intent_result.get("intent", "unknown"),
+            "intent_confidence": intent_result.get("confidence", 0.0),
+            "entities": entity_result.get("entities", {}),
+            "entity_confidence": entity_result.get("confidence", 0.0),  # SỬA: .get() thay vì []
             "context": {
                 "last_intent": intent_result.get("last_intent", ""),
                 "last_question": intent_result.get("last_question", ""),
@@ -729,14 +937,20 @@ class NLUProcessor:
             "llm_provider": "openai"
         }
         
-        merged["overall_confidence"] = (
-            intent_result["confidence"] * 0.6 + 
-            entity_result["confidence"] * 0.4
-        )
+        # TÍNH TOÁN CONFIDENCE AN TOÀN
+        # Intent confidence
+        intent_conf_raw = intent_result.get("confidence", 0.0)
+        intent_conf = self._normalize_confidence(intent_conf_raw)
+        
+        # Entity confidence  
+        entity_conf_raw = entity_result.get("confidence", 0.0)
+        entity_conf = self._normalize_confidence(entity_conf_raw)
+        
+        merged["overall_confidence"] = (intent_conf * 0.6 + entity_conf * 0.4)
         
         merged["suggested_responses"] = self._generate_suggested_responses(
-            intent_result["intent"],
-            entity_result["entities"]
+            merged["intent"],
+            merged["entities"]
         )
         
         # KIỂM TRA: Nếu entity extraction có lỗi quota
@@ -747,6 +961,70 @@ class NLUProcessor:
         
         logger.info(f"NLU Analysis complete: intent={merged['intent']}, confidence={merged['overall_confidence']:.2f}")
         return merged
+
+    # =======================================================
+    # HELPER: NORMALIZE CONFIDENCE - THÊM MỚI
+    # =======================================================
+    def _normalize_confidence(self, confidence_value: Any) -> float:
+        """
+        Chuẩn hóa confidence value từ nhiều định dạng về float 0-1
+        """
+        if confidence_value is None:
+            return 0.0
+        
+        # Nếu là string
+        if isinstance(confidence_value, str):
+            confidence_lower = confidence_value.lower().strip()
+            
+            # Map từ ngữ sang số
+            confidence_map = {
+                "very high": 0.95,
+                "high": 0.85,
+                "medium": 0.65,
+                "low": 0.35,
+                "very low": 0.15,
+                "highly confident": 0.9,
+                "confident": 0.75,
+                "somewhat confident": 0.5,
+                "not confident": 0.25,
+                "excellent": 0.95,
+                "good": 0.8,
+                "fair": 0.6,
+                "poor": 0.3
+            }
+            
+            if confidence_lower in confidence_map:
+                return confidence_map[confidence_lower]
+            
+            # Thử convert string sang float
+            try:
+                # Xóa % nếu có
+                if "%" in confidence_value:
+                    conf_str = confidence_value.replace("%", "").strip()
+                    return float(conf_str) / 100.0
+                
+                return float(confidence_value)
+            except:
+                return 0.5  # Default
+        
+        # Nếu là list/tuple
+        elif isinstance(confidence_value, (list, tuple)):
+            if confidence_value:
+                # Lấy phần tử đầu và normalize
+                return self._normalize_confidence(confidence_value[0])
+            return 0.0
+        
+        # Nếu là int/float
+        elif isinstance(confidence_value, (int, float)):
+            # Đảm bảo trong khoảng 0-1
+            conf_float = float(confidence_value)
+            if conf_float > 1.0:
+                # Có thể là phần trăm (ví dụ: 85 → 0.85)
+                return conf_float / 100.0
+            return max(0.0, min(1.0, conf_float))
+        
+        # Mặc định
+        return 0.5
 
     # =======================================================
     # TẠO CÂU GỢI Ý (Suggested Responses)

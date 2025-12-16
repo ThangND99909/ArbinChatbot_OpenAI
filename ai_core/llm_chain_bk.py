@@ -54,107 +54,89 @@ class OpenAILLM(Runnable):
 
     def invoke(self, inputs: Union[str, Dict], config=None, **kwargs) -> str:
         """
-        Hàm chính để gọi OpenAI model (phiên bản tối ưu token & chống rate limit)
+        Phương thức chính để gọi OpenAI model.
         """
-        import time, random
-        from openai import OpenAIError, APIError, RateLimitError, APIConnectionError, AuthenticationError
-
+        
         if "stop" in kwargs:
             kwargs.pop("stop")
 
-        context_len_before = 0
-        raw_context = ""
-
-        # ========== 1️⃣ Chuẩn bị prompt ==========
+        # Xử lý đầu vào
         if isinstance(inputs, dict):
-            if "context" in inputs and "question" in inputs:
-                # Giới hạn độ dài context để tiết kiệm token
-                raw_context = inputs.get("context", "")
-                context_len_before = len(raw_context)
-                if context_len_before > 4000:
-                    raw_context = raw_context[:4000]
-                    logger.warning(
-                        f"✂️ Context truncated from {context_len_before} to {len(raw_context)} chars"
-                    )
-
-                prompt = QA_PROMPT_TEMPLATE.format(
-                    context=raw_context,
-                    question=inputs.get("question", "")
-                )
-
-            elif "question" in inputs and "language" in inputs:
+            if 'question' in inputs and 'language' in inputs:
                 prompt = f"Question: {inputs['question']}\nLanguage: {inputs['language']}"
+            elif 'context' in inputs and 'question' in inputs:
+                prompt = QA_PROMPT_TEMPLATE.format(
+                    context=inputs['context'],
+                    question=inputs['question']
+                )
             else:
                 prompt = "\n".join(f"{k}: {v}" for k, v in inputs.items())
         else:
             prompt = str(inputs)
 
-        # ========== 2️⃣ Giới hạn độ dài output ==========
-        max_output_tokens = 250  # Giới hạn output để giảm token completion
-
-        # ========== 3️⃣ Đảm bảo client hợp lệ ==========
+        # Kiểm tra client
         if not self.client:
             self._initialize_client()
             if not self.client:
-                raise Exception("OpenAI client not available. Please check API key configuration.")
+                error_msg = "OpenAI client not available. Please check API key configuration."
+                logger.error(error_msg)
+                # RAISE EXCEPTION, không trả về string
+                raise Exception(error_msg)
 
-        # ========== 4️⃣ Gửi request có retry ==========
-        retries = 3
-        for attempt in range(retries):
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=self.temperature,
-                    max_tokens=max_output_tokens
-                )
-                break
+        # ================= GỬI REQUEST ĐẾN OPENAI API =================
+        try:
+            # ====== TỰ ĐỘNG GIỚI HẠN ĐỘ DÀI CÂU TRẢ LỜI ======
+            # Ưu tiên ngắn gọn hơn tùy vào loại tác vụ
+            max_output_tokens = 500  # mặc định
+            if isinstance(inputs, dict):
+                if "intent" in inputs.get("task", "").lower():
+                    max_output_tokens = 150
+                elif "entity" in inputs.get("task", "").lower():
+                    max_output_tokens = 200
+                elif "comparison" in inputs.get("task", "").lower():
+                    max_output_tokens = 700
+                elif "qa" in inputs.get("task", "").lower():
+                    max_output_tokens = 500
+                elif "support" in inputs.get("task", "").lower():
+                    max_output_tokens = 400
+                else:
+                    # Nếu có context dài, giảm bớt để tiết kiệm token
+                    context_len = len(inputs.get("context", "")) if "context" in inputs else 0
+                    max_output_tokens = 300 if context_len < 2000 else 200
 
-            except RateLimitError as e:
-                wait = 5 * (attempt + 1) + random.uniform(0, 2)
-                logger.warning(f"⚠️ OpenAI rate limit reached (attempt {attempt+1}/{retries}). Retrying in {wait:.1f}s...")
-                time.sleep(wait)
-
-            except APIError as e:
-                logger.error(f"❌ APIError: {e}")
-                time.sleep(2)
-
-            except (APIConnectionError, AuthenticationError) as e:
-                logger.error(f"❌ Connection/Auth Error: {e}")
-                return "OpenAI API connection/authentication error. Please check configuration."
-
-            except OpenAIError as e:
-                logger.error(f"❌ General OpenAIError: {e}")
-                return f"OpenAIError: {str(e)}"
-
-            except Exception as e:
-                logger.error(f"❌ Unknown error: {e}")
-                if "rate_limit_exceeded" in str(e).lower():
-                    logger.warning("⚠️ Rate limit exceeded — switching to fallback LLM.")
-                    fallback = SimpleLLMManager(model=self.model)
-                    return fallback.invoke(inputs)
-                raise
-
-        else:
-            raise Exception("Rate limit exceeded after retries")
-
-        # ========== 5️⃣ Xử lý kết quả ==========
-        result = response.choices[0].message.content.strip() if response.choices else ""
-        usage = getattr(response, "usage", None)
-
-        # ========== 6️⃣ Log token usage ==========
-        if usage:
-            prompt_tk = getattr(usage, "prompt_tokens", 0)
-            completion_tk = getattr(usage, "completion_tokens", 0)
-            total_tk = getattr(usage, "total_tokens", 0)
-            print(
-                f"🔢 Tokens used: prompt={prompt_tk}, completion={completion_tk}, total={total_tk} "
-                f"(saved ~{max(0, (context_len_before - len(raw_context)) // 4)} tokens)"
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=self.temperature,
+                max_tokens=max_output_tokens
             )
+            
+            # ====== LOG THÔNG TIN SỬ DỤNG TOKEN =====
+            if hasattr(response, "usage"):
+                usage = response.usage
+                print(f"🔢 Tokens used: prompt={usage.prompt_tokens}, completion={usage.completion_tokens}, total={usage.total_tokens}")
+            # ================= XỬ LÝ KẾT QUẢ TRẢ VỀ =================
+            if response.choices and len(response.choices) > 0:
+                result = response.choices[0].message.content.strip()
+                logger.debug(f"OpenAI response received, length: {len(result)}")
+            else:
+                error_msg = "OpenAI returned empty response"
+                logger.warning(error_msg)
+                raise Exception(error_msg)
+                
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"OpenAI API error: {error_msg}")
+            print(f"❌ OpenAI API error: {error_msg}")
+            
+            # QUAN TRỌNG: RAISE EXCEPTION, không trả về string
+            # NLUProcessor cần bắt exception này
+            raise Exception(f"OpenAI API error: {error_msg}")
 
-        logger.debug(f"✅ OpenAI response extracted ({len(result)} chars)")
+        logger.debug(f"OpenAI response extracted: {result[:200]}...")
         return result
-
 
     # Phương thức _call để tương thích với giao diện Runnable của LangChain
     def _call(self, prompt: str, stop: Optional[List[str]] = None, **kwargs) -> str:
@@ -194,65 +176,83 @@ class SimpleLLMManager(Runnable):
     
     def invoke(self, inputs: Union[str, Dict], config: Optional[Dict] = None, **kwargs) -> str:
         """
-        Fallback LLM invoke: trả lời tự nhiên, JSON NLU/entity hợp lệ,
-        QA chain thân thiện, giảm token khi context quá dài.
+        Implement invoke method với đúng signature của Runnable
+        LangChain sẽ gọi method này với config parameter
         """
         # Debug logging
         print(f"🔧 SimpleLLMManager.invoke() called")
+        print(f"   Input type: {type(inputs)}")
         if isinstance(inputs, dict):
             print(f"   Input keys: {list(inputs.keys())}")
         else:
             print(f"   Input: {str(inputs)[:100]}...")
-
-        # ---------- TRƯỜNG HỢP DICT ----------
+        
+        # Xử lý inputs theo các trường hợp
         if isinstance(inputs, dict):
-            # --- Intent Detection ---
+            # TRƯỜNG HỢP 1: NLU Intent Detection
             if 'question' in inputs and 'language' in inputs:
-                return '{"intent": "unknown", "confidence": 0.5, "alternative_intents": [], "explanation": "Fallback LLM – cannot detect intent, please clarify your question."}'
-
-            # --- Entity Extraction ---
-            elif 'question' in inputs and not 'language' in inputs:
-                return '''{
-    "entities": {
-        "product_names": [],
-        "technical_info": [],
-        "applications": [],
-        "features": [],
-        "issues": [],
-        "software": [],
-        "locations": []
-    },
-    "confidence": 0.4,
-    "extraction_notes": "Fallback LLM – no entities detected, please provide more details"
-    }'''
-
-            # --- QA Chain (context + question) ---
-            elif 'context' in inputs and 'question' in inputs:
-                context_short = (inputs['context'][:200] + "...") if inputs['context'] else "Không có thông tin"
                 question = inputs['question']
-                return f"""Dựa trên thông tin hiện có: {context_short}
+                language = inputs['language']
+                print(f"   NLU Intent Detection format detected")
+                
+                # Trả về JSON hợp lệ cho intent detection
+                return '{"intent": "unknown", "confidence": 0.5, "alternative_intents": [], "explanation": "Using fallback LLM for intent detection"}'
+            
+            # TRƯỜNG HỢP 2: NLU Entity Extraction
+            elif 'question' in inputs:
+                question = inputs['question']
+                print(f"   NLU Entity Extraction format detected")
+                
+                # Trả về JSON hợp lệ cho entity extraction
+                return '''{
+  "entities": {
+    "product_names": [],
+    "technical_info": [],
+    "applications": [],
+    "features": [],
+    "issues": [],
+    "software": [],
+    "locations": []
+  },
+  "confidence": 0.4,
+  "extraction_notes": "Fallback entity extraction - no entities detected"
+}'''
+            
+            # TRƯỜNG HỢP 3: QA Chain (context + question)
+            elif 'context' in inputs and 'question' in inputs:
+                context = inputs['context'][:200] if inputs['context'] else "No context"
+                question = inputs['question']
+                print(f"   QA Chain format detected")
+                
+                return f"""Based on context: {context}...
 
-    Câu hỏi: {question}
+Question: {question}
 
-    Trả lời: Tôi hiện đang chạy chế độ fallback và chưa có dữ liệu đầy đủ. Bạn có thể:
-    1. Tham khảo www.arbin.com để biết thông tin sản phẩm
-    2. Liên hệ support@arbin.com để được trợ giúp chi tiết
-    3. Cung cấp thêm thông tin để tôi có thể trả lời chính xác hơn
-    """
+Response: I'm currently using a fallback LLM. Please configure your OpenAI API key in the .env file for accurate responses about Arbin Instruments products.
 
-            # --- Generic dict ---
+Suggested next steps:
+1. Check your .env file has OPENAI_API_KEY
+2. Visit www.arbin.com for product information
+3. Contact support@arbin.com for technical assistance"""
+            
+            # TRƯỜNG HỢP 4: Generic dict input
             else:
                 return f"Fallback response for dictionary input: {str(inputs)[:100]}..."
-
-        # ---------- TRƯỜNG HỢP STRING ----------
+        
         else:
+            # TRƯỜNG HỢP 5: String input
             input_str = str(inputs)
-            return f"""Câu hỏi của bạn: "{input_str[:100]}..."
+            return f"""Fallback LLM Response:
 
-    Hiện tại tôi đang chạy chế độ fallback. Để biết thông tin chính xác về các sản phẩm Arbin (BT series, MITS Pro, battery testing systems), bạn có thể:
-    1. Tham khảo www.arbin.com
-    2. Liên hệ support@arbin.com để được trợ giúp chi tiết
-    """
+You asked: "{input_str[:100]}..."
+
+Note: I'm currently running in fallback mode. To get accurate information about Arbin Instruments products (BT series, MITS Pro, battery testing systems), please:
+
+1. Configure OpenAI API key in .env file
+2. Ensure vector store has relevant documents
+3. Contact technical support if issues persist
+
+For immediate assistance, email: support@arbin.com"""
 
     # Phương thức _call để tương thích với giao diện Runnable cũ của LangChain
     def _call(self, prompt: str, stop: Optional[List[str]] = None, **kwargs) -> str:

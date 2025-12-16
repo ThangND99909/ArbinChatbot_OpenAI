@@ -1,7 +1,9 @@
+import os
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
-import os
+
 from typing import List, Dict, Any, Set, Tuple, Optional, Union
 import logging
 import numpy as np
@@ -15,6 +17,12 @@ import gc
 from collections import defaultdict
 import math
 import re
+import sys
+# Fix encoding cho logging trên Windows
+if sys.platform == "win32":
+    # Set default encoding cho stdout
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 try:
     import torch
@@ -35,13 +43,13 @@ class EnhancedVectorStore:
     """
     
     def __init__(self, 
-                 persist_directory: str = "./chroma_db",
-                 collection_name: str = "arbin_documents",
-                 embedding_model: str = "all-MiniLM-L6-v2",
-                 embedding_batch_size: int = 32,
-                 max_collection_size: int = 100000,
-                 enable_backup: bool = True):
-        
+             persist_directory: str = "./chroma_db",
+             collection_name: str = "arbin_documents",
+             embedding_model: str = "intfloat/multilingual-e5-base",
+             embedding_batch_size: int = 128,
+             max_collection_size: int = 100000,
+             enable_backup: bool = True):
+    
         # Thread safety
         self.lock = threading.RLock()
         
@@ -63,6 +71,7 @@ class EnhancedVectorStore:
             'total_duplicates': 0,
             'search_count': 0,
             'embedding_time': 0,
+            'embedding_count': 0,  # THÊM: Đếm số embeddings đã tạo
             'errors': 0,
             'last_backup': None,
             'collection_size': 0
@@ -75,10 +84,10 @@ class EnhancedVectorStore:
         # Deduplication tracking
         self.processed_urls: Set[str] = set()
         self.processed_files: Set[str] = set()
-        self.content_hashes: Dict[str, Tuple[str, datetime]] = {}  # doc_id -> (hash, timestamp)
+        self.content_hashes: Dict[str, Tuple[str, datetime]] = {}
         self.url_to_id: Dict[str, str] = {}
         self.file_to_id: Dict[str, str] = {}
-        self.id_to_source: Dict[str, Dict] = {}  # doc_id -> source info
+        self.id_to_source: Dict[str, Dict] = {}
         
         # Load processed data
         self._load_processed_data()
@@ -92,12 +101,23 @@ class EnhancedVectorStore:
             )
         )
         
-        # Initialize embedding model with memory optimization
+        # Initialize embedding model với memory optimization
         logger.info(f"Loading embedding model: {embedding_model}")
+        
+        # Chọn device
+        device = 'cuda' if TORCH_AVAILABLE and torch.cuda.is_available() else 'cpu'
+        logger.info(f"Using device: {device}")
+        
+        # Load model với caching
         self.embedding_model = SentenceTransformer(
             embedding_model,
-            device='cuda' if TORCH_AVAILABLE and torch.cuda.is_available() else 'cpu'
+            device=device,
+            cache_folder="./model_cache"  # Cache model để tải nhanh hơn lần sau
         )
+        
+        # Lấy embedding dimension - DÒNG QUAN TRỌNG CẦN THÊM
+        self.embedding_dimension = self.embedding_model.get_sentence_embedding_dimension()
+        logger.info(f"Embedding dimension: {self.embedding_dimension}")
         
         # Get or create collection
         with self.lock:
@@ -111,9 +131,10 @@ class EnhancedVectorStore:
                     metadata={
                         "hnsw:space": "cosine",
                         "created_at": datetime.now().isoformat(),
-                        "embedding_model": embedding_model
+                        "embedding_model": embedding_model,
+                        "embedding_dimension": self.embedding_dimension  # THÊM VÀO METADATA
                     },
-                    embedding_function=None  # We handle embeddings manually
+                    embedding_function=None
                 )
                 logger.info(f"Created new collection: {collection_name}")
         
@@ -121,10 +142,13 @@ class EnhancedVectorStore:
         self.cleanup_thread = None
         self.running = True
         self._start_background_cleanup()
+        
+        logger.info(f"✅ EnhancedVectorStore initialized successfully")
     
     def _start_background_cleanup(self):
         """Start background thread for cleanup tasks"""
         def cleanup_worker():
+            import time  # THÊM IMPORT NÀY TRONG SCOPE CỦA HÀM
             while self.running:
                 try:
                     time.sleep(3600)  # Run every hour
@@ -135,7 +159,6 @@ class EnhancedVectorStore:
                 except Exception as e:
                     logger.error(f"Error in cleanup worker: {e}")
         
-        import time
         self.cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
         self.cleanup_thread.start()
     
@@ -229,14 +252,31 @@ class EnhancedVectorStore:
         normalized = re.sub(r'\s+', ' ', content.strip())
         return hashlib.md5(normalized.encode('utf-8')).hexdigest()
     
-    def generate_doc_id(self, source_type: str, identifier: str) -> str:
-        """Tạo unique doc_id dựa trên source và identifier"""
+    def generate_doc_id(self, source_type: str, identifier: str, content: str = "") -> str:
+        """Tạo unique doc_id dựa trên source, identifier và content"""
+        import secrets
+        
         # Clean identifier
-        clean_identifier = re.sub(r'[^\w\-_.]', '_', identifier)
-        timestamp = int(datetime.now().timestamp())
-        unique_string = f"{source_type}_{clean_identifier}_{timestamp}"
-        unique_hash = hashlib.md5(unique_string.encode('utf-8')).hexdigest()[:12]
-        return f"{source_type[:3]}_{unique_hash}"
+        clean_identifier = re.sub(r'[^\w\-_.]', '_', identifier)[:50]
+        
+        # Tạo hash từ content để đảm bảo unique
+        content_hash = ""
+        if content:
+            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()[:8]
+        
+        # Tạo timestamp với milliseconds
+        timestamp = int(datetime.now().timestamp() * 1000)
+        
+        # Thêm random string để đảm bảo uniqueness
+        random_str = secrets.token_hex(4)
+        
+        # Tạo ID gồm: source_type + identifier_hash + content_hash + timestamp + random
+        identifier_hash = hashlib.md5(clean_identifier.encode('utf-8')).hexdigest()[:6]
+        
+        doc_id = f"{source_type[:3]}_{identifier_hash}_{content_hash}_{timestamp}_{random_str}"
+        
+        # Giới hạn độ dài
+        return doc_id[:64]
     
     def _validate_metadata(self, metadata: Dict) -> Dict:
         """Đảm bảo metadata có đầy đủ trường bắt buộc"""
@@ -270,67 +310,79 @@ class EnhancedVectorStore:
         Returns: (is_duplicate, doc_id_if_exists)
         """
         with self.lock:
-            # Check URL/file already processed
-            if source_type == "web" and identifier in self.processed_urls:
-                return True, self.url_to_id.get(identifier, "")
-            elif source_type == "document" and identifier in self.processed_files:
-                return True, self.file_to_id.get(identifier, "")
-            
-            # Check content hash
+            # Check content hash trước (quan trọng nhất)
             content_hash = self.get_content_hash(content)
+            
+            # Tìm trong content_hashes
             for existing_id, (existing_hash, _) in self.content_hashes.items():
                 if existing_hash == content_hash:
                     logger.info(f"Duplicate content detected (same hash): {identifier}")
                     return True, existing_id
             
+            # Sau đó check URL/file đã processed
+            if source_type == "web" and identifier in self.processed_urls:
+                return True, self.url_to_id.get(identifier, "")
+            elif source_type == "document" and identifier in self.processed_files:
+                return True, self.file_to_id.get(identifier, "")
+            
             return False, ""
     
     def create_embeddings(self, texts: List[str]) -> np.ndarray:
-        """Tạo embeddings cho nhiều văn bản với batch processing"""
-        import time
-        start_time = time.time()
+        """Tạo embeddings cho nhiều văn bản với batch processing - OPTIMIZED VERSION"""
+        import time as tm  # Dùng alias để tránh conflict
+        start_time = tm.time()
         
-        logger.info(f"Creating embeddings for {len(texts)} texts in batches of {self.embedding_batch_size}")
-        
-        all_embeddings = []
-        for i in range(0, len(texts), self.embedding_batch_size):
-            batch = texts[i:i + self.embedding_batch_size]
-            
-            # Filter out empty or very short texts
-            valid_batch = [text for text in batch if text and len(text.strip()) > 10]
-            if not valid_batch:
-                continue
-            
-            batch_embeddings = self.embedding_model.encode(
-                valid_batch,
-                show_progress_bar=False,
-                normalize_embeddings=True,  # Important for cosine similarity
-                convert_to_numpy=True
-            )
-            
-            # Handle cases where some texts were filtered out
-            if len(batch_embeddings) < len(batch):
-                # Pad with zeros for filtered texts
-                padded_embeddings = np.zeros((len(batch), batch_embeddings.shape[1]))
-                valid_idx = 0
-                for j, text in enumerate(batch):
-                    if text and len(text.strip()) > 10:
-                        padded_embeddings[j] = batch_embeddings[valid_idx]
-                        valid_idx += 1
-                batch_embeddings = padded_embeddings
-            
-            all_embeddings.append(batch_embeddings)
-        
-        if not all_embeddings:
+        if not texts:
+            logger.warning("No texts provided for embedding")
             return np.array([])
         
-        embeddings = np.vstack(all_embeddings)
+        logger.info(f"Creating embeddings for {len(texts)} texts")
         
-        elapsed_time = time.time() - start_time
-        self.metrics['embedding_time'] += elapsed_time
+        # Filter and prepare valid texts
+        valid_texts = []
+        valid_indices = []
         
-        logger.info(f"Created embeddings: {embeddings.shape} in {elapsed_time:.2f}s")
-        return embeddings
+        for i, text in enumerate(texts):
+            if text and isinstance(text, str) and len(text.strip()) > 10:
+                valid_texts.append(text.strip())
+                valid_indices.append(i)
+        
+        if not valid_texts:
+            logger.warning("No valid texts for embedding")
+            # Return zero embeddings với đúng dimension
+            return np.zeros((len(texts), self.embedding_dimension), dtype=np.float32)
+        
+        try:
+            # Create embeddings in batch
+            embeddings = self.embedding_model.encode(
+                valid_texts,
+                show_progress_bar=False,
+                batch_size=self.embedding_batch_size,
+                normalize_embeddings=True,  # Quan trọng cho cosine similarity
+                convert_to_numpy=True,
+                device=self.embedding_model.device
+            )
+            
+            # Handle case where some texts were filtered
+            if len(embeddings) < len(texts):
+                full_embeddings = np.zeros((len(texts), self.embedding_dimension), dtype=np.float32)
+                for idx, emb_idx in enumerate(valid_indices):
+                    full_embeddings[emb_idx] = embeddings[idx]
+                embeddings = full_embeddings
+            
+            elapsed_time = tm.time() - start_time
+            self.metrics['embedding_time'] += elapsed_time
+            self.metrics['embedding_count'] += len(texts)
+            
+            logger.info(f"✅ Created {len(embeddings)} embeddings in {elapsed_time:.2f}s "
+                    f"({len(texts)/elapsed_time:.1f} texts/sec)")
+            
+            return embeddings
+            
+        except Exception as e:
+            logger.error(f"Error creating embeddings: {e}")
+            # Return zero embeddings as fallback
+            return np.zeros((len(texts), self.embedding_dimension), dtype=np.float32)
     
     def add_documents(self, 
                      chunks: List[Dict], 
@@ -402,7 +454,7 @@ class EnhancedVectorStore:
                         else:
                             # New document
                             new_count += 1
-                            doc_id = self.generate_doc_id(source_type, identifier)
+                            doc_id = self.generate_doc_id(source_type, identifier, content)
                             
                             # Update tracking
                             if source_type == "web" and identifier:
@@ -603,14 +655,32 @@ class EnhancedVectorStore:
             
         except Exception as e:
             logger.error(f"Error enforcing size limit: {e}")
+
+    def create_single_embedding(self, text: str) -> List[float]:
+        """Tạo embedding cho một text duy nhất - OPTIMIZED"""
+        if not text or not isinstance(text, str) or len(text.strip()) < 3:
+            # Return zero vector với đúng dimension
+            return [0.0] * self.embedding_dimension
+        
+        try:
+            embedding = self.embedding_model.encode(
+                [text.strip()],  # Truyền dạng list
+                normalize_embeddings=True,
+                show_progress_bar=False,
+                device=self.embedding_model.device
+            )[0].tolist()  # Lấy phần tử đầu tiên
+            return embedding
+        except Exception as e:
+            logger.error(f"Error creating single embedding: {e}")
+            return [0.0] * self.embedding_dimension
     
     def search_similar(self, 
-                      query: str, 
-                      k: int = 5, 
-                      score_threshold: float = 0.7,
-                      filter_metadata: Dict = None,
-                      use_cache: bool = True) -> List[Dict]:
-        """Tìm các document tương tự query với caching và filtering"""
+                  query: str, 
+                  k: int = 5, 
+                  score_threshold: float = 0.3,
+                  filter_metadata: Dict = None,
+                  use_cache: bool = True) -> List[Dict]:
+        """Tìm các document tương tự query với caching và filtering - UPDATED"""
         with self.lock:
             try:
                 self.metrics['search_count'] += 1
@@ -621,12 +691,9 @@ class EnhancedVectorStore:
                     logger.debug(f"Cache hit for query: {query[:50]}...")
                     return self.query_cache[cache_key]
                 
-                # Create query embedding
+                # Create query embedding - DÙNG HÀM MỚI
                 start_time = datetime.now()
-                query_embedding = self.embedding_model.encode(
-                    query, 
-                    normalize_embeddings=True
-                ).tolist()
+                query_embedding = self.create_single_embedding(query)
                 
                 # Build filter if provided
                 where_filter = None
@@ -639,9 +706,11 @@ class EnhancedVectorStore:
                             where_filter["$and"].append({key: value})
                 
                 # Query with more results for filtering
-                n_results = min(k * 3, self.collection.count())
-                if n_results == 0:
+                collection_count = self.collection.count()
+                if collection_count == 0:
                     return []
+                
+                n_results = min(k * 3, collection_count)
                 
                 results = self.collection.query(
                     query_embeddings=[query_embedding],
@@ -658,7 +727,7 @@ class EnhancedVectorStore:
                     
                     # Validate distance
                     if distance is None or (isinstance(distance, float) and 
-                                           (math.isnan(distance) or math.isinf(distance))):
+                                        (math.isnan(distance) or math.isinf(distance))):
                         distance = 1.0
                     
                     score = 1.0 - float(distance)
@@ -690,14 +759,14 @@ class EnhancedVectorStore:
                 query_time = (datetime.now() - start_time).total_seconds()
                 for doc in similar_docs:
                     doc['metadata']['_query_time'] = query_time
-                    doc['metadata']['_query'] = query[:100]  # Store first 100 chars
+                    doc['metadata']['_query'] = query[:100]
                 
                 # Cache results
                 if use_cache and similar_docs:
                     self.query_cache[cache_key] = similar_docs
                 
                 logger.debug(f"Search completed in {query_time:.3f}s: "
-                           f"found {len(similar_docs)} results")
+                        f"found {len(similar_docs)} results")
                 
                 return similar_docs
                 
@@ -758,13 +827,22 @@ class EnhancedVectorStore:
         return all_results if len(queries) > 1 else all_results[0]
     
     def clear_embeddings_cache(self):
-        """Clear embedding model cache to free memory"""
+        """Clear embedding model cache to free memory - OPTIMIZED"""
         try:
-            if hasattr(self.embedding_model, 'model'):
-                if TORCH_AVAILABLE:
-                    torch.cuda.empty_cache()
-                gc.collect()
-                logger.debug("Cleared embeddings cache")
+            # Clear PyTorch cache nếu có GPU
+            if TORCH_AVAILABLE and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.debug("Cleared CUDA cache")
+            
+            # Clear Python garbage collector
+            gc.collect()
+            
+            # Clear model cache nếu có
+            if hasattr(self.embedding_model, '_model') and hasattr(self.embedding_model._model, 'cpu'):
+                self.embedding_model._model.cpu()
+                logger.debug("Moved model to CPU to free GPU memory")
+            
+            logger.debug("Cleared embeddings cache")
         except Exception as e:
             logger.warning(f"Could not clear embeddings cache: {e}")
     
@@ -813,7 +891,7 @@ class EnhancedVectorStore:
         return self.add_documents(chunks, **kwargs)
     
     def get_collection_stats(self) -> Dict[str, Any]:
-        """Lấy thống kê chi tiết về collection"""
+        """Lấy thống kê chi tiết về collection - UPDATED"""
         with self.lock:
             try:
                 count = self.collection.count()
@@ -823,6 +901,7 @@ class EnhancedVectorStore:
                         'total_documents': 0,
                         'collection_name': self.collection_name,
                         'embedding_model': self.embedding_model_name,
+                        'embedding_dimension': self.embedding_dimension,  # THÊM
                         'status': 'empty'
                     }
                 
@@ -849,6 +928,11 @@ class EnhancedVectorStore:
                 # Calculate statistics
                 avg_content_length = sum(content_lengths) / len(content_lengths) if content_lengths else 0
                 
+                # Calculate embedding speed
+                embedding_time = max(self.metrics.get('embedding_time', 0.001), 0.001)
+                embedding_count = self.metrics.get('embedding_count', 0)
+                embedding_speed = embedding_count / embedding_time if embedding_time > 0 else 0
+                
                 stats = {
                     'total_documents': count,
                     'processed_urls_count': len(self.processed_urls),
@@ -858,12 +942,17 @@ class EnhancedVectorStore:
                     'source_types_distribution': dict(source_types),
                     'average_content_length': avg_content_length,
                     'embedding_model': self.embedding_model_name,
+                    'embedding_dimension': self.embedding_dimension,  # THÊM
                     'collection_name': self.collection_name,
                     'persist_directory': str(self.persist_directory),
                     'metrics': self.metrics.copy(),
                     'cache_size': len(self.query_cache),
                     'collection_size_limit': self.max_collection_size,
-                    'current_size_percentage': (count / self.max_collection_size * 100) if self.max_collection_size > 0 else 0
+                    'current_size_percentage': (count / self.max_collection_size * 100) if self.max_collection_size > 0 else 0,
+                    'device': str(self.embedding_model.device),  # THÊM
+                    'embedding_speed': f"{embedding_speed:.1f} texts/sec",  # THÊM
+                    'embedding_count': embedding_count,  # THÊM
+                    'embedding_time_seconds': round(embedding_time, 2)  # THÊM
                 }
                 
                 return stats
@@ -901,7 +990,7 @@ class EnhancedVectorStore:
                 return {'found': False, 'error': str(e)}
     
     def update_document(self, doc_id: str, content: str, metadata: Dict = None) -> Dict[str, Any]:
-        """Cập nhật document bằng ID"""
+        """Cập nhật document bằng ID - UPDATED"""
         with self.lock:
             try:
                 # Get existing document
@@ -917,11 +1006,8 @@ class EnhancedVectorStore:
                 new_metadata['updated_at'] = datetime.now().isoformat()
                 new_metadata['update_count'] = new_metadata.get('update_count', 0) + 1
                 
-                # Create new embedding
-                new_embedding = self.embedding_model.encode(
-                    content, 
-                    normalize_embeddings=True
-                ).tolist()
+                # Create new embedding - DÙNG HÀM MỚI
+                new_embedding = self.create_single_embedding(content)
                 
                 # Update in collection
                 self.collection.update(
@@ -1181,29 +1267,38 @@ class EnhancedVectorStore:
         return VectorStoreRetriever(self, search_kwargs)
     
     def get_health_status(self) -> Dict[str, Any]:
-        """Kiểm tra trạng thái health của vector store"""
+        """Kiểm tra trạng thái health của vector store - UPDATED"""
         try:
             # Check ChromaDB connection
             collection_count = self.collection.count()
             
-            # Check embedding model
-            test_embedding = self.embedding_model.encode("test")
+            # Test embedding model
+            test_embedding = self.create_single_embedding("health check test")
+            embedding_working = len(test_embedding) == self.embedding_dimension
             
             # Check storage
             storage_available = self.persist_directory.exists() and os.access(self.persist_directory, os.W_OK)
             
+            # Check background thread
+            background_thread_alive = self.cleanup_thread and self.cleanup_thread.is_alive() if self.cleanup_thread else False
+            
             # Calculate uptime metrics
             status = {
-                'status': 'healthy',
+                'status': 'healthy' if all([embedding_working, storage_available]) else 'degraded',
                 'collection_count': collection_count,
-                'embedding_model': 'working',
+                'embedding_model': self.embedding_model_name,
+                'embedding_working': embedding_working,
+                'embedding_dimension': self.embedding_dimension,
+                'device': str(self.embedding_model.device),
                 'storage': 'available' if storage_available else 'unavailable',
+                'background_thread': 'alive' if background_thread_alive else 'dead',
                 'cache_size': len(self.query_cache),
                 'processed_urls': len(self.processed_urls),
                 'processed_files': len(self.processed_files),
                 'unique_hashes': len(self.content_hashes),
                 'last_backup': self.metrics.get('last_backup'),
                 'total_searches': self.metrics['search_count'],
+                'total_embeddings': self.metrics.get('embedding_count', 0),
                 'total_errors': self.metrics['errors'],
                 'timestamp': datetime.now().isoformat()
             }
@@ -1220,25 +1315,34 @@ class EnhancedVectorStore:
     def __del__(self):
         """Cleanup khi object bị destroy"""
         self.running = False
-        if self.cleanup_thread:
-            self.cleanup_thread.join(timeout=5)
-        
+
+        # Stop cleanup thread nếu tồn tại
+        if hasattr(self, 'cleanup_thread') and self.cleanup_thread:
+            try:
+                self.cleanup_thread.stop()
+                self.cleanup_thread.join(timeout=5)
+            except Exception as e:
+                print(f"Warning: cleanup_thread failed during __del__: {e}")
+
         # Save processed data one last time
         try:
             self._save_processed_data()
-        except:
+        except Exception:
             pass
-        
+
         # Clear cache
-        self.clear_embeddings_cache()
+        try:
+            self.clear_embeddings_cache()
+        except Exception:
+            pass
 
 
 # Factory function for backward compatibility
 def create_vector_store(persist_directory: str = "./chroma_db",
                        collection_name: str = "arbin_documents",
-                       embedding_model: str = "all-MiniLM-L6-v2",
+                       embedding_model: str = "intfloat/multilingual-e5-base",
                        **kwargs) -> EnhancedVectorStore:
-    """Factory function to create EnhancedVectorStore"""
+    """Factory function to create EnhancedVectorStore - UPDATED"""
     return EnhancedVectorStore(
         persist_directory=persist_directory,
         collection_name=collection_name,

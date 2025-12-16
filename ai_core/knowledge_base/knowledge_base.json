@@ -1,0 +1,28 @@
+{
+  "rules": [
+    {
+      "keywords": ["mits pro", "cấu hình", "thiết lập", "setup", "configure", "software"],
+      "vi": "Dưới đây là thông tin về phần mềm MITS Pro của Arbin:\n\n**Giới thiệu:**\nMITS Pro là phần mềm điều khiển chính cho hệ thống thử nghiệm pin của Arbin Instruments.\n\n**Tính năng nổi bật:**\n- Lập trình chu kỳ sạc/xả qua giao diện đồ họa\n- Cấu hình điều kiện dừng linh hoạt\n- Giao diện thân thiện, dễ sử dụng\n- Tương thích nhiều thiết bị Arbin\n\n**Ứng dụng:**\n- Thử nghiệm pin nghiên cứu (R&D)\n- Kiểm soát chất lượng\n- Phân tích dữ liệu hiệu năng\n\n**Tài nguyên hữu ích:**\n- Tài liệu người dùng: Documents/Software/MITS-Pro\n- Hỗ trợ kỹ thuật: support@arbin.com",
+      "en": "Here is information about Arbin's MITS Pro software:\n\n**Overview:**\nMITS Pro is Arbin Instruments’ main control software for battery testing systems.\n\n**Key Features:**\n- Menu-based cycle programming\n- Configurable stop conditions\n- Intuitive graphical interface\n- Compatible with multiple Arbin systems\n\n**Applications:**\n- R&D battery testing\n- Quality control\n- Data analysis and system monitoring\n\n**Resources:**\n- User manual: Documents/Software/MITS-Pro\n- Technical support: support@arbin.com"
+    },
+    {
+      "keywords": ["rbt series", "rbt", "rbt arbin"],
+      "vi": "Dưới đây là thông tin về dòng sản phẩm **RBT Series** của Arbin:\n\n**Tổng quan:**\nRBT (Research Battery Test) là dòng thiết bị thử nghiệm cao cấp dành cho nghiên cứu và phát triển.\n\n**Tính năng nổi bật:**\n- Độ chính xác cao (±0.02% FS)\n- Tốc độ lấy mẫu nhanh (lên tới 100kHz)\n- Kiểm soát nhiệt độ tích hợp\n- Tích hợp phần mềm MITS Pro\n\n**Ứng dụng:**\n- Nghiên cứu pin tiên tiến\n- Phát triển vật liệu điện cực\n- Kiểm tra chu kỳ sống và đặc tính tế bào\n\n**Thông tin liên hệ:**\napplications@arbin.com | www.arbin.com/products/rbt-series",
+      "en": "Here is information about Arbin’s **RBT Series**:\n\n**Overview:**\nThe RBT (Research Battery Test) series provides advanced battery testing for R&D applications.\n\n**Key Features:**\n- High accuracy (±0.02% FS)\n- Fast sampling rate (up to 100kHz)\n- Integrated temperature control\n- MITS Pro software compatibility\n\n**Applications:**\n- Advanced battery research\n- Electrode material development\n- Cycle life and performance testing\n\n**Contact:**\napplications@arbin.com | www.arbin.com/products/rbt-series"
+    },
+    {
+      "keywords": ["bt series", "bt-", "bt2000", "bt 2000", "bt-2000"],
+      "vi": "Dưới đây là thông tin về **BT Series** của Arbin Instruments:\n\n**Giới thiệu:**\nBT Series là dòng thiết bị thử nghiệm pin phổ biến, được sử dụng rộng rãi trong phòng thí nghiệm và sản xuất.\n\n**Ứng dụng:**\n- Kiểm tra chất lượng pin\n- Sản xuất pin và cell EV\n- Nghiên cứu học thuật\n\n**Tính năng chính:**\n- Dải điện áp 5V–10V, dòng điện 10A–200A\n- Độ chính xác ±0.1% of reading\n- Số kênh từ 4 đến 128\n\n**Tài nguyên:**\nwww.arbin.com/products/bt-series",
+      "en": "Here is information about Arbin’s **BT Series**:\n\n**Overview:**\nThe BT Series are Arbin’s most popular battery testing systems, widely used for both research and production.\n\n**Applications:**\n- Quality control testing\n- EV battery pack development\n- Academic research\n\n**Main Specifications:**\n- Voltage range: 5V–10V\n- Current range: 10A–200A\n- Accuracy: ±0.1% of reading\n- Channels: 4–128\n\n**Resources:**\nwww.arbin.com/products/bt-series"
+    },
+    {
+      "keywords": ["liên hệ", "contact", "email", "address", "phone"],
+      "vi": "Thông tin liên hệ của Arbin Instruments:\n\n📧 Hỗ trợ kỹ thuật: support@arbin.com\n📧 Bán hàng: sales@arbin.com\n📧 Ứng dụng: applications@arbin.com\n🌐 Website: www.arbin.com\n\n**Địa chỉ:**\nArbin Instruments\n11525 Stonehollow Dr, Suite 125, Austin, TX 78758, USA",
+      "en": "Arbin Instruments contact information:\n\n📧 Technical support: support@arbin.com\n📧 Sales: sales@arbin.com\n📧 Applications: applications@arbin.com\n🌐 Website: www.arbin.com\n\n**Address:**\nArbin Instruments\n11525 Stonehollow Dr, Suite 125, Austin, TX 78758, USA"
+    }
+  ],
+  "fallback": {
+    "vi": "Hiện tại tôi chưa tìm thấy thông tin cụ thể. Vui lòng truy cập www.arbin.com hoặc gửi email đến support@arbin.com để được hỗ trợ.",
+    "en": "I couldn’t find detailed information on that topic. Please visit www.arbin.com or email support@arbin.com for assistance."
+  }
+}
